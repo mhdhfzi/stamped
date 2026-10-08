@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { font-family: 'Inter', sans-serif; }
+
+/* In the components layer so Tailwind utilities (absolute, etc.) can override position */
+@layer components {
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.01);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.15) 20%,
+    rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.15) 80%, rgba(255,255,255,0.45) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+}
+
+html, body, #root { height: 100%; margin: 0; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+button { -webkit-user-select: none; user-select: none; }
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.animate-fade-in { animation: fade-in 250ms ease-out both; }
+.animate-rise-in { animation: rise-in 400ms ease-out both; }
+
+input[type='date']::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+
+/* Leaflet map: dark-friendly tiles and controls */
+.stamped-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6); }
+.stamped-map .leaflet-control-attribution { background: rgba(10, 10, 12, 0.6); color: rgba(255, 255, 255, 0.45); font-size: 9px; }
+.stamped-map .leaflet-control-attribution a { color: rgba(255, 255, 255, 0.6); }
+.stamped-map .leaflet-bar { border: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+.stamped-map .leaflet-bar a { background: rgba(20, 20, 23, 0.9); color: #fff; border-bottom-color: rgba(255, 255, 255, 0.1); }
+input[type='time']::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+
+/* Login / welcome screen */
+@keyframes login-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes login-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes login-fly { 0% { transform: translate(-6px, 4px) rotate(-8deg); } 50% { transform: translate(4px, -4px) rotate(6deg); } 100% { transform: translate(-6px, 4px) rotate(-8deg); } }
+@keyframes login-card { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.login-rise { animation: login-rise 600ms cubic-bezier(.2,.8,.2,1) both; }
+.login-twinkle { animation: login-twinkle 3s ease-in-out infinite; }
+.login-fly { animation: login-fly 3.2s ease-in-out infinite; }
+.login-card { animation: login-card 550ms cubic-bezier(.2,.8,.2,1) 250ms both; }
+@media (prefers-reduced-motion: reduce) {
+  .login-rise, .login-twinkle, .login-fly, .login-card { animation: none; }
+}
+
+/* Display serif for big headlines (beats the global Inter rule) */
+.font-display, .font-display * { font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif; letter-spacing: -0.01em; }
+@keyframes login-orbit { to { transform: rotate(360deg); } }
+.login-orbit { animation: login-orbit 14s linear infinite; transform-origin: 50% 50%; }
+@media (prefers-reduced-motion: reduce) { .login-orbit { animation: none; } }
+
+/* Launch splash */
+@keyframes splash-bar { from { transform: translateX(-100%); } to { transform: translateX(200%); } }
+@keyframes splash-pulse { 0%, 100% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
+.splash-bar { animation: splash-bar 1.1s ease-in-out infinite; }
+.splash-pulse { animation: splash-pulse 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .splash-bar, .splash-pulse { animation: none; } }
+
+/* Splash: spinning flag rings */
+@keyframes splash-spin { to { transform: rotate(360deg); } }
+@keyframes splash-pop { from { opacity: 0; transform: scale(0.2); } 70% { transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
+.splash-spin { animation-name: splash-spin; animation-timing-function: linear; animation-iteration-count: infinite; }
+.splash-pop { animation: splash-pop 520ms cubic-bezier(.2,.9,.3,1.2) both; }
+@media (prefers-reduced-motion: reduce) { .splash-spin, .splash-pop { animation: none; } }
+
+/* Trip page: cards rise in as they scroll into view (see useReveal) */
+.reveal { opacity: 0; transform: translateY(18px) scale(0.97); transition: opacity 0.5s ease, transform 0.65s cubic-bezier(0.2, 0.8, 0.2, 1); transition-delay: var(--reveal-delay, 0ms); }
+.reveal[data-revealed] { opacity: 1; transform: none; }
+/* Tab switch: content slides in from the side of the tab you picked */
+@keyframes tab-in-right { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes tab-in-left { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.tab-in-right { animation: tab-in-right 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.tab-in-left { animation: tab-in-left 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .tab-in-right, .tab-in-left { animation: none; }
+}

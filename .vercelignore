@@ -1,0 +1,9 @@
+# Files NOT uploaded to Vercel. `.env` is deliberately uploaded: it holds the public Firebase
+# client settings that `vite build` bakes into the app (access is protected by firestore.rules).
+node_modules
+dist
+dist-single
+.firebase
+*.log
+.env.local
+.env.*.local
