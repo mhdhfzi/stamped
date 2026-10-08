@@ -351,6 +351,7 @@ users/{uid}                 → tokens[] (this person's devices for notification
 - EXIF is read from JPEG only (iPhone Safari converts HEIC to JPEG on upload).
 - Hotel lists come from OpenStreetMap (not every property); Airbnb/booking prices aren't available as open data.
 - Popular places: the first load for a new place can take 5–30 s (then cached for 30 days). Searches widen to 30/60 km and add OpenStreetMap results where famous sights are few; nearer places rank higher.
+- Transit in **Japan**: Google licenses Japan's timetables to Google Maps only, so the app shows the walking route and sends you to Google Maps for trains. Works in Malaysia, Singapore, Korea, Europe, etc.
 - Transit: plan hops show lines and durations (not clock times, since the trip may be another day); live times are in **Directions**. *Optimise order* and *Split across days* use road travel times as a stand-in for transit.
 
 ---

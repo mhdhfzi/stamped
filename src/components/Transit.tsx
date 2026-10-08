@@ -109,7 +109,7 @@ export function TransitLegRow({ leg, label, loading, failed }: { leg?: TransitRo
         ) : (
           <span className="flex items-center gap-1.5">
             <TrainFront size={11} /> {label ? `${label} · ` : ''}
-            {failed ? 'Transit unavailable for this hop' : 'No public transport — walk or take a taxi'}
+            {failed ? 'Lines unavailable here — tap the blue arrow for trains in Google Maps' : 'No public transport — walk or take a taxi'}
           </span>
         )}
       </button>
@@ -236,7 +236,7 @@ export function DirectionsSheet({ to, fallback, defaultMode, onClose }: { to: En
           )}
           {!origin && !locating && <p className="text-xs text-white/50">Allow location to get directions from where you are.</p>}
 
-          {mode === 'transit' && !loading && transitError && <p className="rounded-2xl bg-white/[0.05] px-4 py-3 text-xs text-white/60">{transitError} You can still open it in Google Maps below.</p>}
+          {mode === 'transit' && !loading && transitError && <p className="rounded-2xl bg-white/[0.05] px-4 py-3 text-xs text-white/60">{transitError} Tap Start in Google Maps below to see the lines and times.</p>}
           {mode === 'transit' && !loading && transit && (
             <ul className="space-y-2">
               {transit.map((r, i) => (

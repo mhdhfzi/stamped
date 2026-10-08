@@ -49,13 +49,22 @@ export interface TransitRoute {
 }
 
 export class TransitError extends Error {
-  constructor(public reason: 'not-setup' | 'offline' | 'failed' | 'none') {
+  constructor(public reason: 'not-setup' | 'offline' | 'failed' | 'none' | 'japan') {
     super(reason);
   }
 }
 
+/**
+ * Japan's train and bus timetables are licensed to Google Maps only — Google's API returns no
+ * transit routes there. Rough outline of Japan (main islands + Okinawa; leaves out Korea).
+ */
+export function inJapan(p: LatLng) {
+  return (p.lat >= 30 && p.lat <= 46 && p.lng >= 129.5 && p.lng <= 149) || (p.lat >= 24 && p.lat < 30 && p.lng >= 122.9 && p.lng <= 131.5);
+}
+
 /** Asks the server. Throws TransitError. */
 export async function transitRoutes(origin: LatLng, destination: LatLng, opts: { alternatives?: boolean; departureTime?: string; signal?: AbortSignal } = {}): Promise<TransitRoute[]> {
+  if (inJapan(origin) && inJapan(destination)) throw new TransitError('japan');
   if (!navigator.onLine) throw new TransitError('offline');
   let res: Response;
   try {
@@ -168,5 +177,6 @@ export function transitErrorText(e: unknown): string {
   if (r === 'not-setup') return 'Transit directions aren’t set up yet (Google Routes key missing).';
   if (r === 'offline') return 'You’re offline — transit times need a connection.';
   if (r === 'none') return 'No public transport found for this trip.';
+  if (r === 'japan') return 'Google only shows Japan’s train & bus times inside the Google Maps app.';
   return 'Couldn’t get transit directions right now.';
 }
