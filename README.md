@@ -95,6 +95,7 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 - **Share a trip** → a 6-letter invite code and link; friends join from the link or Account → *Join a trip with a code*
 - **One live plan** for everyone: places, days, hotels and dates sync both ways in real time
 - **Shared photos**: moments added to a shared trip appear on everyone's phone (including ones added before a friend joined); removing one removes it for all
+- **Photos & videos in the chat**, WhatsApp-style: **+** → Camera · Gallery · Video · Day plan, or the 📷 in the message box. In-app camera: **tap for a photo, hold to record** (or the Video mode), flip camera, up to 60 s; pick several photos/videos from the gallery (videos up to 20 MB); preview with a caption before sending; upload progress; full-screen viewer with save
 - **Group chat** per trip: messages, **typing…** indicator, **read receipts** (✓ sent · ✓✓ seen · *Seen by Aina, Ben* — tap your message for who hasn't), automatic notes (*Aina added Tsukiji Outer Market to Day 2*), and 📍 **Remind the group** — a card with tomorrow's places and start/end hotel
 - **Shared expenses**: who paid, split equally between chosen people (any currency), each person's balance, **Settle up** with the fewest payments, **Mark paid**
 - **Members**: invite code, share link, organiser badge, leave the group (ownership passes on)
@@ -209,9 +210,14 @@ Sharing needs your own free Firebase project (Spark plan is enough):
 The config values are public client settings, not secrets — access is protected by the rules. `.env` is git-ignored.
 
 ### Chat notifications (optional)
- alerts need two keys. Without them everything else works, and *Account → Chat notifications* shows *Not set up yet*.
-. **Web Push key** — Firebase console → Project settings → *Cloud Messaging* → *Web Push certificates* → **Generate key pair** → copy the key. Add it to `.env` **and** to Vercel (Settings → Environment Variables) as `VITE_FIREBASE_VAPID_KEY=…`.. **Server key** — Project settings → *Service accounts* → **Generate new private key** (downloads a `.json`). In Vercel add a variable `FIREBASE_SERVICE_ACCOUNT` and paste the **whole file content** as its value. This one is a secret: never commit it or put it in `.env`.. **Redeploy** (Vercel → Deployments → ⋯ → Redeploy), then on each phone: *Account → Chat notifications* (or the banner in a group chat) → allow.
- iPhone (iOS 16.4+), notifications only work from the **Home Screen** app, not a Safari tab.
+
+Phone alerts need two keys. Without them everything else works, and *Account → Chat notifications* shows *Not set up yet*.
+
+1. **Web Push key** — Firebase console → Project settings → *Cloud Messaging* → *Web Push certificates* → **Generate key pair** → copy the key. Add it to `.env` **and** to Vercel (Settings → Environment Variables) as `VITE_FIREBASE_VAPID_KEY=…`.
+2. **Server key** — Project settings → *Service accounts* → **Generate new private key** (downloads a `.json`). In Vercel add a variable `FIREBASE_SERVICE_ACCOUNT` and paste the **whole file content** as its value. This one is a secret: never commit it or put it in `.env`.
+3. **Redeploy** (Vercel → Deployments → ⋯ → Redeploy), then on each phone: *Account → Chat notifications* (or the banner in a group chat) → allow.
+
+On iPhone (iOS 16.4+), notifications only work from the **Home Screen** app, not a Safari tab.
 
 **Test without a project:** `npm run emulators` in one terminal, `npm run dev:emulators` in another — accounts and data stay on your computer.
 
@@ -286,8 +292,13 @@ invites/{code}              → { groupId }
 groups/{groupId}            → name, countryCode, ownerId, members[], memberInfo{}, inviteCode, currency,
                                trip { title, startDate, endDate, stays, travelMode }
 groups/{id}/stops/{stopId}  → the shared plan (one document per place)
-groups/{id}/messages/{id}   → chat: text · activity · plan card
-groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, splitWith[], createdBy/{id}/photos/{id}     → shared photo details: takenAt, place, caption, lat/lng, addedBy/{id}/photoData/{id}  → the picture (JPEG data URL, ≤ 600 KB, kept apart so the list stays light)/{id}/status/{uid}    → typingAt, readAt (typing indicator & read receipts)/{uid}                 → tokens[] (this person's devices for notifications)
+groups/{id}/messages/{id}   → chat: text · activity · plan card · photo · video (with kind, size, preview)
+groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, splitWith[], createdBy
+groups/{id}/photos/{id}     → shared photo details: takenAt, place, caption, lat/lng, addedBy
+groups/{id}/photoData/{id}  → the picture (JPEG data URL, ≤ 600 KB, kept apart so the list stays light)
+groups/{id}/media/{m}_{n}   → pieces (≤ 900 KB) of photos & videos sent in the chat
+groups/{id}/status/{uid}    → typingAt, readAt (typing indicator & read receipts)
+users/{uid}                 → tokens[] (this person's devices for notifications)
 ```
 
 **Backups** are one `.json` file with trips, photos (base64), plans, expenses and settings.
@@ -311,6 +322,7 @@ groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, 
 
 ## ⚠️ Known limits
 - Reminders are posted by tapping 📍; *scheduled* reminders (e.g. every evening automatically) would need a scheduled server job.
+- Chat videos are stored in Firestore pieces (no paid Firebase Storage): in-app recordings are ~1 Mbit/s (about 8 MB a minute), gallery videos are limited to 20 MB. The free 1 GB fills faster with videos.
 - Shared photos are resized to fit Firestore's 1 MB document limit (about 1440 px); the free plan's 1 GB holds a few thousand of them.
 - Shared plans use last-write-wins if two people edit the same place at the same moment.
 - Packing lists aren't shared yet; personal Budget and shared Expenses are separate.

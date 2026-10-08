@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { ArrowRight, BedDouble, Check, CheckCheck, ChevronLeft, Copy, Crown, HandCoins, Loader2, LogOut, MapPinned, MessageCircle, Send, Share2, Trash2, Users, Wallet } from 'lucide-react';
+import { ArrowRight, BedDouble, Camera, Check, CheckCheck, ChevronLeft, Images, Plus, Video, Copy, Crown, HandCoins, Loader2, LogOut, MapPinned, MessageCircle, Send, Share2, Trash2, Users, Wallet } from 'lucide-react';
 import type { ExpenseCategory, Stop, Trip } from '../../types';
 import { currencyOf } from '../../data/currencies';
 import { useStore } from '../../store';
@@ -10,6 +10,7 @@ import {
   markChatRead,
   pushToGroup,
   saveGroupExpense,
+  sendMedia,
   sendPlan,
   sendText,
   setTyping,
@@ -26,6 +27,7 @@ import {
 } from '../../lib/cloud';
 import { markRead } from '../../lib/groupBadge';
 import { PushBanner } from './PushControls';
+import { ChatCamera, MediaBubble, MediaPreview, MediaViewer, prepareFiles, type Prepared } from './ChatMedia';
 import { convert, fmtMoney, parseAmount } from '../../lib/money';
 import { balances, settleUp } from '../../lib/split';
 import { dayEnds, stayBlocks } from '../../lib/stays';
@@ -138,6 +140,26 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<MemberStatus[]>([]);
   const [infoFor, setInfoFor] = useState<string | null>(null);
+  // Photos & videos: attach menu, camera, chosen-but-unsent items, uploads in progress, full-screen view.
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [camera, setCamera] = useState<'photo' | 'video' | null>(null);
+  const [picked, setPicked] = useState<Prepared[]>([]);
+  const [sending, setSending] = useState<{ item: Prepared; caption: string; progress: number; failed?: boolean }[]>([]);
+  const [viewing, setViewing] = useState<ChatMessage | null>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+
+  function upload(item: Prepared, caption: string) {
+    const patch = (p: Partial<{ progress: number; failed: boolean }>) => setSending((list) => list.map((s) => (s.item.key === item.key ? { ...s, ...p } : s)));
+    setSending((list) => [...list.filter((s) => s.item.key !== item.key), { item, caption, progress: 0 }]);
+    sendMedia(group.id, user, item.blob, { kind: item.kind, mime: item.mime, w: item.w, h: item.h, duration: item.duration, thumb: item.thumb }, caption, (f) => (f >= 1 ? setSending((list) => list.filter((s) => s.item.key !== item.key)) : patch({ progress: f })), item.url).then(
+      () => setSending((list) => list.filter((s) => s.item.key !== item.key)),
+      (err) => {
+        console.error('Media not sent', err);
+        patch({ failed: true });
+        notify(`Not sent — ${cloudErrorMessage(err)}`);
+      },
+    );
+  }
   const [now, setNow] = useState(Date.now);
   const bottom = useRef<HTMLDivElement>(null);
   const { notify } = useStore();
@@ -247,6 +269,8 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
               >
                 {m.type === 'plan' && m.plan ? (
                   <PlanCardView plan={m.plan} start={trip.startDate} mine={mine} />
+                ) : m.media ? (
+                  <MediaBubble groupId={group.id} media={m.media} caption={m.text} mine={mine} onOpen={() => setViewing(m)} />
                 ) : (
                   <p className={cn('max-w-[78%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words', mine ? 'bg-white text-black rounded-br-md' : 'bg-white/[0.08] text-white rounded-bl-md')}>{m.text}</p>
                 )}
@@ -266,6 +290,23 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
             </div>
           );
         })}
+        {/* Your photos/videos still uploading */}
+        {sending.map((s) => (
+          <div key={s.item.key} className="flex flex-col items-end">
+            <MediaBubble media={s.item} caption={s.caption} mine progress={s.failed ? undefined : s.progress} />
+            <span className="text-[9px] mx-2 mt-0.5 flex items-center gap-2">
+              {s.failed ? (
+                <>
+                  <span className="text-red-300">Not sent</span>
+                  <button type="button" onClick={() => upload(s.item, s.caption)} className="font-semibold text-white">Retry</button>
+                  <button type="button" onClick={() => setSending((x) => x.filter((y) => y.item.key !== s.item.key))} className="text-white/50">Remove</button>
+                </>
+              ) : (
+                <span className="text-white/30">Sending…</span>
+              )}
+            </span>
+          </div>
+        ))}
         {typers.length > 0 && (
           <div className="flex items-end gap-2 pt-1 animate-fade-in" aria-live="polite">
             <span className="rounded-2xl rounded-bl-md bg-white/[0.08] px-3.5 py-2.5 flex items-center gap-1">
@@ -301,18 +342,104 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
       >
         <button
           type="button"
-          aria-label="Share a day's plan"
-          disabled={!days}
-          onClick={() => setPlanOpen(true)}
-          className="w-10 h-10 shrink-0 rounded-full bg-white/[0.08] text-amber-300 flex items-center justify-center active:scale-95 disabled:opacity-30"
+          aria-label="Attach"
+          aria-expanded={attachOpen}
+          onClick={() => setAttachOpen(!attachOpen)}
+          className={cn('w-10 h-10 shrink-0 rounded-full flex items-center justify-center active:scale-95 transition-transform', attachOpen ? 'bg-white text-black rotate-45' : 'bg-white/[0.08] text-white')}
         >
-          <MapPinned size={18} />
+          <Plus size={20} />
         </button>
-        <input value={text} onChange={(e) => onType(e.target.value)} onBlur={stopTyping} placeholder="Message" maxLength={1000} className={cn(inputClass, 'flex-1 min-w-0 rounded-full py-2.5')} />
+        <div className="relative flex-1 min-w-0">
+          <input value={text} onChange={(e) => onType(e.target.value)} onBlur={stopTyping} placeholder="Message" maxLength={1000} className={cn(inputClass, 'w-full rounded-full py-2.5 pr-11')} />
+          {!text.trim() && (
+            <button type="button" aria-label="Camera" onClick={() => setCamera('photo')} className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full text-white/70 flex items-center justify-center active:bg-white/10">
+              <Camera size={19} />
+            </button>
+          )}
+        </div>
         <button type="submit" aria-label="Send" disabled={!text.trim()} className="w-10 h-10 shrink-0 rounded-full bg-white text-black flex items-center justify-center active:scale-95 disabled:opacity-30">
           <Send size={16} />
         </button>
       </form>
+
+      {/* WhatsApp-style attach menu */}
+      {attachOpen && (
+        <>
+          <div className="absolute inset-0 z-[55]" onClick={() => setAttachOpen(false)} />
+          <div className="absolute left-3 right-3 bottom-[88px] z-[56] rounded-3xl bg-[#1c1c20] border border-white/10 p-4 grid grid-cols-4 gap-2 shadow-2xl animate-rise-in">
+            {(
+              [
+                [Camera, 'Camera', 'bg-rose-500', () => setCamera('photo')],
+                [Images, 'Gallery', 'bg-violet-500', () => galleryRef.current?.click()],
+                [Video, 'Video', 'bg-sky-500', () => setCamera('video')],
+                [MapPinned, 'Day plan', 'bg-amber-500', () => (days ? setPlanOpen(true) : notify('Set the trip dates first to share a day’s plan'))],
+              ] as const
+            ).map(([Icon, label, color, act]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  setAttachOpen(false);
+                  act();
+                }}
+                className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
+              >
+                <span className={cn('w-12 h-12 rounded-full flex items-center justify-center text-white', color)}>
+                  <Icon size={21} />
+                </span>
+                <span className="text-[11px] text-white/80">{label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        onChange={async (e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (!files.length) return;
+          setCamera(null);
+          const { items, tooBig } = await prepareFiles(files);
+          if (tooBig) notify(`${tooBig} video${tooBig === 1 ? ' is' : 's are'} over 20 MB — record a shorter clip with the chat camera`);
+          if (items.length) setPicked((p) => [...p, ...items]);
+        }}
+      />
+      {camera && (
+        <ChatCamera
+          startMode={camera}
+          onClose={() => setCamera(null)}
+          onGallery={() => galleryRef.current?.click()}
+          onCapture={(item) => {
+            setCamera(null);
+            setPicked((p) => [...p, item]);
+          }}
+        />
+      )}
+      {picked.length > 0 && (
+        <MediaPreview
+          items={picked}
+          onRemove={(k) => setPicked((p) => p.filter((x) => x.key !== k))}
+          onAddMore={() => galleryRef.current?.click()}
+          onClose={() => setPicked([])}
+          onSend={(caption) => {
+            const list = picked;
+            setPicked([]);
+            list.forEach((item, i) => upload(item, i === 0 ? caption : ''));
+            const photos = list.filter((x) => x.kind === 'photo').length;
+            const videos = list.length - photos;
+            const what = [photos && `📷 ${photos === 1 ? 'Photo' : `${photos} photos`}`, videos && `🎥 ${videos === 1 ? 'Video' : `${videos} videos`}`].filter(Boolean).join(' · ');
+            pushToGroup(group.id, user, caption.trim() ? `${what}: ${caption.trim()}` : what);
+          }}
+        />
+      )}
+      {viewing?.media && (
+        <MediaViewer groupId={group.id} media={viewing.media} caption={viewing.text} title={`${nameOf(viewing.uid)} · ${viewing.createdAt?.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) ?? ''}`} onClose={() => setViewing(null)} />
+      )}
 
       <PlanSheet open={planOpen} onClose={() => setPlanOpen(false)} trip={trip} stops={stopsOf(trip.id)} onSend={(plan) => sendPlan(group.id, user, plan).then(() => pushToGroup(group.id, user, `📍 Plan for Day ${plan.day + 1}: ${plan.stops.map((s) => s.name).join(', ') || 'free day'}`))} />
     </>

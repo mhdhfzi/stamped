@@ -9,6 +9,7 @@
  *   groups/{id}/messages/{m}  → chat (text, activity notes, plan cards)
  *   groups/{id}/expenses/{e}  → shared expenses (who paid, split between whom)
  *   groups/{id}/photos/{p}    → shared photo details; groups/{id}/photoData/{p} → the picture
+ *   groups/{id}/media/{m}_{n} → pieces of photos & videos sent in the chat
  *   groups/{id}/status/{uid}  → when each member last read the chat / is typing
  *   users/{uid}               → push notification addresses (tokens) of your devices
  */
@@ -32,6 +33,7 @@ import {
   addDoc,
   arrayRemove,
   arrayUnion,
+  Bytes,
   collection,
   connectFirestoreEmulator,
   deleteDoc,
@@ -329,13 +331,30 @@ export interface PlanCard {
   to?: string;
 }
 
+/** A photo or video sent in the chat. The file itself is stored in pieces in groups/{id}/media. */
+export interface ChatMedia {
+  id: string;
+  kind: 'photo' | 'video';
+  mime: string;
+  size: number;
+  /** How many ≤ 900 KB pieces the file was split into. */
+  chunks: number;
+  w: number;
+  h: number;
+  /** Seconds (videos). */
+  duration?: number;
+  /** Tiny JPEG preview (data URL) shown straight away. */
+  thumb: string;
+}
+
 export interface ChatMessage {
   id: string;
   uid: string;
   name: string;
-  type: 'text' | 'activity' | 'plan';
+  type: 'text' | 'activity' | 'plan' | 'photo' | 'video';
   text: string;
   plan?: PlanCard;
+  media?: ChatMedia;
   createdAt: Date | null;
 }
 
@@ -368,11 +387,66 @@ export function cloudErrorMessage(e: unknown): string {
   return `Something went wrong (${code || 'unknown error'}).`;
 }
 
-const send = (groupId: string, user: User, m: Pick<ChatMessage, 'type' | 'text' | 'plan'>) =>
+const send = (groupId: string, user: User, m: Pick<ChatMessage, 'type' | 'text' | 'plan' | 'media'>) =>
   addDoc(collection(db, 'groups', groupId, 'messages'), { ...m, uid: user.uid, name: displayName(user), createdAt: serverTimestamp() });
 
 export const sendText = (groupId: string, user: User, text: string) => send(groupId, user, { type: 'text', text: text.trim() });
 export const sendPlan = (groupId: string, user: User, plan: PlanCard) => send(groupId, user, { type: 'plan', text: `Plan for Day ${plan.day + 1}`, plan });
+// Chat photos & videos. Firestore documents hold at most 1 MB, so a file is split into
+// ≤ 900 KB pieces (media/{mediaId}_{n}), written first; the message that points to them comes last.
+const PIECE = 900_000;
+export const MAX_CHAT_VIDEO = 20 * 1024 * 1024;
+
+export async function sendMedia(
+  groupId: string,
+  user: User,
+  file: Blob,
+  info: Omit<ChatMedia, 'id' | 'size' | 'chunks'>,
+  caption: string,
+  onProgress?: (fraction: number) => void,
+  /** The sender already has the file: show it from here instead of downloading it back. */
+  localUrl?: string,
+) {
+  const id = doc(collection(db, 'groups', groupId, 'media')).id;
+  if (localUrl) mediaUrls.set(id, Promise.resolve(localUrl));
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunks = Math.max(1, Math.ceil(bytes.length / PIECE));
+  // Up to 8 pieces (~7 MB) per write — under Firestore's 10 MB request limit.
+  for (let i = 0; i < chunks; i += 8) {
+    const batch = writeBatch(db);
+    for (let j = i; j < Math.min(i + 8, chunks); j++) {
+      batch.set(doc(db, 'groups', groupId, 'media', `${id}_${j}`), { data: Bytes.fromUint8Array(bytes.subarray(j * PIECE, (j + 1) * PIECE)), addedBy: user.uid });
+    }
+    await batch.commit();
+    onProgress?.(Math.min(i + 8, chunks) / chunks);
+  }
+  const media: ChatMedia = { ...info, id, size: bytes.length, chunks };
+  await send(groupId, user, { type: info.kind, text: caption.trim(), media });
+}
+
+const mediaUrls = new Map<string, Promise<string>>();
+
+/** A playable/viewable URL for a chat photo or video (downloaded once per session). */
+export function chatMediaUrl(groupId: string, m: ChatMedia, onProgress?: (fraction: number) => void): Promise<string> {
+  let p = mediaUrls.get(m.id);
+  if (!p) {
+    let done = 0;
+    p = Promise.all(
+      Array.from({ length: m.chunks }, (_, i) =>
+        getDoc(doc(db, 'groups', groupId, 'media', `${m.id}_${i}`)).then((s) => {
+          onProgress?.(++done / m.chunks);
+          const data = s.data()?.data as Bytes | undefined;
+          if (!data) throw new Error('Missing part of the file');
+          return data.toUint8Array();
+        }),
+      ),
+    ).then((parts) => URL.createObjectURL(new Blob(parts as BlobPart[], { type: m.mime })));
+    p.catch(() => mediaUrls.delete(m.id));
+    mediaUrls.set(m.id, p);
+  }
+  return p;
+}
+
 /** Small grey notes in the chat: "Aina added Fushimi Inari to Day 3". */
 export const postActivity = (groupId: string, user: User, text: string) => send(groupId, user, { type: 'activity', text }).catch(() => undefined);
 

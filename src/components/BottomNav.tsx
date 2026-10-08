@@ -4,8 +4,8 @@ import { cn } from '../lib/utils';
 
 const ITEMS: { id: Tab; label: string; Icon: typeof Home }[] = [
   { id: 'feed', label: 'Feed', Icon: Home },
-  { id: 'account', label: 'Account', Icon: User },
   { id: 'trips', label: 'Trips', Icon: FileText },
+  { id: 'account', label: 'Account', Icon: User },
 ];
 
 export function BottomNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
