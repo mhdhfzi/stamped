@@ -36,7 +36,7 @@ async function fetchRates(): Promise<Rates> {
 export function loadRates(force = false): Promise<Rates | null> {
   if (memo && !force && Date.now() - memo.fetchedAt < MAX_AGE) return Promise.resolve(memo);
   inflight ??= (async () => {
-    const repo = await getRepo();
+    const repo = await getRepo(null);
     const cached = (await repo.getMeta('rates')) as Rates | undefined;
     if (cached && !memo) memo = cached;
     if (memo && !force && Date.now() - memo.fetchedAt < MAX_AGE) return memo;

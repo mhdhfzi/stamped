@@ -113,6 +113,8 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 
 **Local-first.** Everything you create is saved immediately in the browser's **IndexedDB** on your device, so the app opens instantly and works offline. A single React context (`store.tsx`) holds the state and all actions.
 
+**One space per account.** Each account's trips live in their own on-device database (`stamped-<uid>`); using the app without an account uses `stamped`. Signing out switches to the no-account space (a clean app) and shows the welcome screen; signing back in brings your trips back. Trips made without an account move into the first account that signs in on that phone. (Data stays on the phone after signing out — use *Delete all data* first to remove it.)
+
 **Opens with no internet.** A service worker (`public/sw.js`) saves every file of the app on the first visit (the build writes the list to `precache.json`), so after that Stamped launches in airplane mode. Opening it online still fetches the newest version; old versions are cleaned up. The same worker shows chat notifications. No account is needed for solo use — *Continue without an account* on the welcome screen.
 
 **Sharing is an optional layer.** Firebase code is loaded only when sharing is configured and needed (a separate ~200 KB download), so solo use stays small and offline. When a trip is shared:

@@ -19,17 +19,55 @@ async function removeSampleTrips(repo: Repo) {
 }
 
 // Shared so concurrent mounts (e.g. React StrictMode) don't run the cleanup twice.
-let initPromise: Promise<Repo> | null = null;
-function initRepo() {
-  initPromise ??= (async () => {
-    const repo = await getRepo();
-    if (!(await repo.getMeta('samplesRemoved'))) {
-      await removeSampleTrips(repo);
-      await repo.setMeta('samplesRemoved', true);
-    }
-    return repo;
-  })();
-  return initPromise;
+const opened = new Map<string, Promise<Repo>>();
+function openSpace(account: string | null) {
+  const key = account ?? '';
+  let p = opened.get(key);
+  if (!p) {
+    p = (async () => {
+      const repo = await getRepo(account);
+      if (!(await repo.getMeta('samplesRemoved'))) {
+        await removeSampleTrips(repo);
+        await repo.setMeta('samplesRemoved', true);
+      }
+      return repo;
+    })();
+    opened.set(key, p);
+  }
+  return p;
+}
+
+/** Whose trips this phone showed last (uid), so the right ones open straight away next launch. */
+const ACCOUNT_KEY = 'stamped:account';
+function lastAccount(): string | null {
+  try {
+    return localStorage.getItem(ACCOUNT_KEY);
+  } catch {
+    return null;
+  }
+}
+function rememberAccount(uid: string | null) {
+  try {
+    if (uid) localStorage.setItem(ACCOUNT_KEY, uid);
+    else localStorage.removeItem(ACCOUNT_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Trips made without an account move into the first account that signs in on this phone. */
+async function adoptGuestData(target: Repo) {
+  const guest = await openSpace(null);
+  if (guest === target) return;
+  const [mine, g] = await Promise.all([target.loadAll(), guest.loadAll()]);
+  if (mine.trips.length || !g.trips.length) return;
+  for (const t of g.trips) await target.putTrip(t);
+  await target.putPhotos(g.photos);
+  await target.putStops(g.stops);
+  await target.putExpenses(g.expenses);
+  for (const [k, v] of await guest.allMeta()) await target.setMeta(k, v);
+  await guest.clear();
+  await guest.setMeta('samplesRemoved', true);
 }
 
 /** A local edit to something a shared trip syncs (its places, details or photos). */
@@ -97,6 +135,8 @@ interface StoreValue {
   exportBackup(): Promise<Blob>;
   importBackup(file: File): Promise<number>;
   resetAll(): Promise<void>;
+  /** Shows the trips of this account (uid), or of no account (null) — called when you sign in or out. */
+  switchAccount(uid: string | null): Promise<void>;
 }
 
 const Ctx = createContext<StoreValue | null>(null);
@@ -123,26 +163,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   expensesRef.current = expenses;
   const toastTimer = useRef<number>();
 
+  /** Shows one space's data (everything resets to that space's own values). */
+  const show = useCallback(async (repo: Repo) => {
+    const all = await repo.loadAll();
+    photosRef.current.forEach((p) => releasePhotoSrc(p.id));
+    repoRef.current = repo;
+    setStorageMode(repo.kind);
+    tripsRef.current = all.trips;
+    photosRef.current = all.photos;
+    setTrips(all.trips);
+    setPhotos(all.photos);
+    setStops(all.stops);
+    setExpenses(all.expenses);
+    const [hc, n, pp] = await Promise.all([repo.getMeta('homeCurrency'), repo.getMeta('profileName'), repo.getMeta('profilePhoto')]);
+    setHome(typeof hc === 'string' && hc ? hc : guessHomeCurrency());
+    setName(typeof n === 'string' && n ? n : 'Traveler');
+    setPhoto(typeof pp === 'string' && pp ? pp : null);
+  }, []);
+
+  const accountRef = useRef<string | null>(lastAccount());
+  // Serialises switches (sign in → out → in quickly).
+  const switching = useRef<Promise<void>>(Promise.resolve());
+
   useEffect(() => {
     (async () => {
-      const repo = await initRepo();
-      repoRef.current = repo;
-      setStorageMode(repo.kind);
-      const all = await repo.loadAll();
-      setTrips(all.trips);
-      setPhotos(all.photos);
-      setStops(all.stops);
-      setExpenses(all.expenses);
-      const hc = await repo.getMeta('homeCurrency');
-      if (typeof hc === 'string' && hc) setHome(hc);
-      const n = await repo.getMeta('profileName');
-      if (typeof n === 'string' && n) setName(n);
-      const pp = await repo.getMeta('profilePhoto');
-      if (typeof pp === 'string' && pp) setPhoto(pp);
+      await show(await openSpace(accountRef.current));
       setReady(true);
       navigator.storage?.persist?.().catch(() => undefined);
     })();
-  }, []);
+  }, [show]);
+
+  const switchAccount = useCallback(
+    (uid: string | null) => {
+      switching.current = switching.current.then(async () => {
+        if (uid === accountRef.current) return;
+        const repo = await openSpace(uid);
+        if (uid) await adoptGuestData(repo);
+        accountRef.current = uid;
+        rememberAccount(uid);
+        await show(repo);
+      });
+      return switching.current;
+    },
+    [show],
+  );
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -486,7 +550,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addTrip, updateTrip, deleteTrip, addPhotos, updatePhoto, deletePhoto,
     stopsOf, addStop, updateStop, deleteStop, arrangeStops, reorderDay, setTripDates,
     expensesOf, saveExpense, deleteExpense, setHomeCurrency, applyRemote, applyRemotePhotos, setProfileName, profilePhoto, setProfilePhoto,
-    exportBackup, importBackup, resetAll,
+    exportBackup, importBackup, resetAll, switchAccount,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -29,7 +29,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
  * Renders nothing; mounted once by the app when sharing is configured.
  */
 export default function CloudSync() {
-  const { trips, stops, photos, applyRemote, applyRemotePhotos, updatePhoto, notify } = useStore();
+  const { trips, stops, photos, applyRemote, applyRemotePhotos, updatePhoto, notify, switchAccount } = useStore();
   const user = useCloudUser();
   const tripsRef = useRef(trips);
   const stopsRef = useRef(stops);
@@ -160,6 +160,11 @@ export default function CloudSync() {
     return () => unsubs.forEach((u) => u());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, key]);
+
+  // Each account has its own trips on this phone: show the signed-in account's (or the no-account ones after signing out).
+  useEffect(() => {
+    if (user !== undefined) switchAccount(user?.uid ?? null);
+  }, [user, switchAccount]);
 
   // Keep this phone's notification address current (only if notifications are on).
   useEffect(() => {

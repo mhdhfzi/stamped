@@ -97,7 +97,7 @@ export function popularNear(center: LatLng, radiusKm = 12, signal?: AbortSignal)
     inflight.set(
       key,
       (async () => {
-        const repo = await getRepo();
+        const repo = await getRepo(null);
         const cached = (await repo.getMeta(key)) as { at: number; items: Attraction[] } | undefined;
         if (cached && Date.now() - cached.at < MAX_AGE) return cached.items;
         const res = await fetch(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(query(center, radiusKm))}`, {

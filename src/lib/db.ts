@@ -22,11 +22,12 @@ export interface Repo {
   deleteExpense(id: string): Promise<void>;
   getMeta(key: string): Promise<unknown>;
   setMeta(key: string, value: unknown): Promise<void>;
+  allMeta(): Promise<[string, unknown][]>;
   clear(): Promise<void>;
 }
 
-async function idbRepo(): Promise<Repo> {
-  const db = await openDB<StampedDB>('stamped', 3, {
+async function idbRepo(name: string): Promise<Repo> {
+  const db = await openDB<StampedDB>(name, 3, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('trips', { keyPath: 'id' });
@@ -102,6 +103,10 @@ async function idbRepo(): Promise<Repo> {
     async setMeta(key, value) {
       await db.put('meta', value, key);
     },
+    async allMeta() {
+      const [keys, values] = await Promise.all([db.getAllKeys('meta'), db.getAll('meta')]);
+      return keys.map((k, i) => [k, values[i]] as [string, unknown]);
+    },
     async clear() {
       const tx = db.transaction(['trips', 'photos', 'stops', 'expenses', 'meta'], 'readwrite');
       await Promise.all([
@@ -161,6 +166,9 @@ function memoryRepo(): Repo {
     async setMeta(key, value) {
       meta.set(key, value);
     },
+    async allMeta() {
+      return [...meta.entries()];
+    },
     async clear() {
       trips.clear();
       photos.clear();
@@ -171,16 +179,24 @@ function memoryRepo(): Repo {
   };
 }
 
-let repoPromise: Promise<Repo> | null = null;
+const repos = new Map<string, Promise<Repo>>();
 
-export function getRepo(): Promise<Repo> {
-  if (!repoPromise) {
-    repoPromise = idbRepo()
+/**
+ * The on-device database for one account (`uid`), or for using the app without an account (null).
+ * Each account's trips are kept apart, so signing out shows a clean app and signing back in brings them back.
+ * (The no-account space keeps the original name "stamped", so older installs find their data there.)
+ */
+export function getRepo(account: string | null): Promise<Repo> {
+  const name = account ? `stamped-${account}` : 'stamped';
+  let p = repos.get(name);
+  if (!p) {
+    p = idbRepo(name)
       .then(async (r) => {
         await r.getMeta('probe');
         return r;
       })
       .catch(() => memoryRepo());
+    repos.set(name, p);
   }
-  return repoPromise;
+  return p;
 }

@@ -119,8 +119,11 @@ export function InteractiveGlobe({
     const projection = geoOrthographic().clipAngle(90).precision(0.6);
     const path = geoPath(projection, ctx);
 
+    // Keep the element itself: a last resize can arrive after React has let go of the ref.
+    const box = wrap.current!;
     const resize = () => {
-      const b = wrap.current!.getBoundingClientRect();
+      if (!box.isConnected) return;
+      const b = box.getBoundingClientRect();
       w = b.width;
       h = b.height;
       r = Math.min(w, h) * size;
@@ -132,7 +135,7 @@ export function InteractiveGlobe({
     };
     resize();
     const ro = new ResizeObserver(resize);
-    ro.observe(wrap.current!);
+    ro.observe(box);
 
     const center = (): LonLat => [-rot.lambda, -rot.phi];
     const visible = (p: LonLat, margin = 0) => geoDistance(p, center()) < Math.PI / 2 - margin;

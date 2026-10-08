@@ -3,12 +3,15 @@ import { Loader2, LogOut, UserPlus, Users } from 'lucide-react';
 import { displayName, signOut, useCloudUser } from '../../lib/cloud';
 import JoinTrip from './JoinTrip';
 import { PushRow } from './PushControls';
+import { useStore } from '../../store';
 import { SheetRow } from '../ui';
 
 /** Account → "Friends & sharing": sign in/out, join a trip with a code. */
 export default function AccountCloud({ onOpenTrip, onSignIn }: { onOpenTrip: (id: string) => void; onSignIn: () => void }) {
   const user = useCloudUser();
+  const { switchAccount, notify } = useStore();
   const [joinOpen, setJoinOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   return (
     <section className="mt-8">
@@ -26,7 +29,26 @@ export default function AccountCloud({ onOpenTrip, onSignIn }: { onOpenTrip: (id
             </div>
             <SheetRow icon={<UserPlus size={18} />} label="Join a trip with a code" onClick={() => setJoinOpen(true)} />
             <PushRow user={user} />
-            <SheetRow icon={<LogOut size={18} />} label="Sign out" onClick={() => signOut()} />
+            <SheetRow
+              icon={<LogOut size={18} />}
+              label="Sign out"
+              hint={signingOut ? '…' : undefined}
+              onClick={async () => {
+                if (signingOut) return;
+                setSigningOut(true);
+                try {
+                  // This phone stops getting this account's chat notifications.
+                  const push = await import('../../lib/push');
+                  if ((await push.pushState()) === 'on') await push.disablePush(user).catch(() => undefined);
+                  await signOut();
+                  await switchAccount(null);
+                  notify('Signed out — your trips come back when you sign in');
+                  onSignIn();
+                } finally {
+                  setSigningOut(false);
+                }
+              }}
+            />
           </>
         ) : (
           <SheetRow icon={<Users size={18} />} label="Sign in to travel with friends" hint="Chat, plan & split" onClick={onSignIn} />
