@@ -35,7 +35,7 @@ export function DestinationCard({ trip, cover, badge, upcoming, index, onOpen, o
     setTimeout(onOpen, 220);
   }
 
-  const fs = fitTitleSize(trip.title);
+  const fs = fitTitleSize(trip.title, 300, 60, 28);
 
   return (
     // Outer layer: entrance animation only
@@ -88,10 +88,12 @@ export function DestinationCard({ trip, cover, badge, upcoming, index, onOpen, o
           <MoreHorizontal size={16} className="text-white/80" />
         </button>
 
-        <div className="absolute bottom-0 inset-x-0 flex justify-center overflow-hidden" style={{ height: Math.round((fs * 80) / 96) }}>
+        {/* Name sits in the middle of the card, fully visible, over a soft shade so it reads on any photo */}
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.35)_0%,transparent_70%)]" />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 pt-6">
           <span
-            className="font-bold tracking-tight leading-none whitespace-nowrap text-white/55 transition-[color,transform] duration-500 ease-out group-hover:text-white/80 group-hover:-translate-y-1"
-            style={{ fontSize: fs, marginTop: 2 }}
+            className="font-bold tracking-tight leading-[1.15] pb-[0.08em] text-center text-white/90 line-clamp-2 break-words drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)] transition-transform duration-500 ease-out group-hover:scale-105"
+            style={{ fontSize: fs }}
           >
             {trip.title}
           </span>
