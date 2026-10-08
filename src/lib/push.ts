@@ -50,8 +50,8 @@ export async function pushState(): Promise<PushState> {
   return Notification.permission === 'granted' && read(ON_KEY) === '1' ? 'on' : 'off';
 }
 
-/** The small background script that shows notifications while the app is closed (public/push-sw.js). */
-const worker = () => navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
+/** The background script that shows notifications while the app is closed (public/sw.js; it also keeps the app offline). */
+const worker = () => navigator.serviceWorker.register('/sw.js', { scope: '/' });
 
 async function currentToken() {
   const reg = await worker();

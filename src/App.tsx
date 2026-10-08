@@ -54,7 +54,7 @@ function Shell() {
   const [loginOpen, setLoginOpen] = useState(false);
   const closeLogin = useCallback(() => setLoginOpen(false), []);
 
-  // Launch splash: stays until data is loaded and we know who's signed in (≥2.2 s so it can play, ≤5 s on slow networks).
+  // Launch splash: stays until data is loaded and we know who's signed in (≥3.6 s so it can play, ≤7 s on slow networks).
   const [auth, setAuth] = useState<{ resolved: boolean; name: string | null }>(() => ({ resolved: !cloudConfigured || !!joinCode, name: null }));
   const onAuthResolved = useCallback((name: string | null) => setAuth({ resolved: true, name }), []);
   const [splash, setSplash] = useState<'show' | 'leaving' | 'done'>('show');
@@ -63,8 +63,8 @@ function Shell() {
   useEffect(() => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     // Long enough for the flags to pop in and turn a little.
-    const a = setTimeout(() => setMinShown(true), reduced ? 500 : 2200);
-    const b = setTimeout(() => setMaxWaited(true), 5000);
+    const a = setTimeout(() => setMinShown(true), reduced ? 800 : 3600);
+    const b = setTimeout(() => setMaxWaited(true), 7000);
     return () => {
       clearTimeout(a);
       clearTimeout(b);
