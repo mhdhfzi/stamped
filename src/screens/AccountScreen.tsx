@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, HardDrive, Pencil, Trash2, Upload } from 'lucide-react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { Camera, Download, HardDrive, Image as ImageIcon, Loader2, Pencil, Trash2, Upload } from 'lucide-react';
 import { useStore } from '../store';
 import { REGIONS, COUNTRIES, TOTAL_COUNTRIES, getCountry, regionOf } from '../data/countries';
 import { downloadBlob, fmtDate, formatBytes } from '../lib/utils';
@@ -11,13 +11,50 @@ import { cloudConfigured } from '../lib/cloudConfig';
 
 const AccountCloud = lazy(() => import('../components/group/AccountCloud'));
 
+/** Your picture, or the first letter of your name on the app's gradient. */
+function ProfileAvatar({ name, photo, size }: { name: string; photo: string | null; size: number }) {
+  return photo ? (
+    <img src={photo} alt="" className="rounded-full object-cover" style={{ width: size, height: size }} />
+  ) : (
+    <span
+      className="rounded-full flex items-center justify-center font-bold text-white"
+      style={{ width: size, height: size, fontSize: size * 0.38, background: 'linear-gradient(135deg, #ff8a5c, #7a5cff)' }}
+    >
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
 export function AccountScreen({ onOpenTrip, onSignIn }: { onOpenTrip: (id: string) => void; onSignIn: () => void }) {
-  const { trips, photos, photosOf, expenses, homeCurrency, setHomeCurrency, profileName, setProfileName, exportBackup, importBackup, resetAll, notify, storageMode } = useStore();
+  const { trips, photos, photosOf, expenses, homeCurrency, setHomeCurrency, profileName, setProfileName, profilePhoto, setProfilePhoto, exportBackup, importBackup, resetAll, notify, storageMode } = useStore();
   const [editName, setEditName] = useState(false);
   const [name, setName] = useState(profileName);
   const [confirmReset, setConfirmReset] = useState(false);
   const [usage, setUsage] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [savingPhoto, setSavingPhoto] = useState(false);
+
+  function openEdit() {
+    setName(profileName);
+    setEditName(true);
+  }
+
+  async function pickPhoto(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setSavingPhoto(true);
+    try {
+      await setProfilePhoto(f);
+      notify('Profile picture updated');
+    } catch {
+      notify("Couldn't use that picture — try another one");
+    } finally {
+      setSavingPhoto(false);
+    }
+  }
 
   const [rates, setRates] = useState<Rates | null>(null);
   useEffect(() => {
@@ -54,12 +91,15 @@ export function AccountScreen({ onOpenTrip, onSignIn }: { onOpenTrip: (id: strin
       <div className="absolute inset-0 overflow-y-auto scrollbar-hide px-6 pt-28 pb-28 animate-fade-in">
         {/* Profile */}
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white" style={{ background: 'linear-gradient(135deg, #ff8a5c, #7a5cff)' }}>
-            {profileName.charAt(0).toUpperCase()}
-          </div>
+          <button type="button" aria-label="Edit profile" onClick={openEdit} className="relative shrink-0 active:scale-95 transition-transform">
+            <ProfileAvatar name={profileName} photo={profilePhoto} size={64} />
+            <span className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white text-black flex items-center justify-center ring-2 ring-[#0a0a0c]">
+              <Camera size={12} />
+            </span>
+          </button>
           <div className="flex-1 min-w-0">
-            <button type="button" onClick={() => { setName(profileName); setEditName(true); }} className="flex items-center gap-2 text-white text-xl font-semibold truncate">
-              {profileName} <Pencil size={14} className="text-white/40" />
+            <button type="button" onClick={openEdit} className="flex items-center gap-2 text-white text-xl font-semibold truncate max-w-full">
+              <span className="truncate">{profileName}</span> <Pencil size={14} className="shrink-0 text-white/40" />
             </button>
             <p className="text-white/40 text-xs mt-0.5">{firstTrip ? `Travelling since ${fmtDate(firstTrip, { month: 'long', year: 'numeric' })}` : 'Ready for the first stamp'}</p>
           </div>
@@ -211,7 +251,7 @@ export function AccountScreen({ onOpenTrip, onSignIn }: { onOpenTrip: (id: strin
         </section>
       </div>
 
-      <Sheet open={editName} onClose={() => setEditName(false)} title="Your name">
+      <Sheet open={editName} onClose={() => setEditName(false)} title="Edit profile">
         <form
           className="space-y-5"
           onSubmit={async (e) => {
@@ -220,11 +260,41 @@ export function AccountScreen({ onOpenTrip, onSignIn }: { onOpenTrip: (id: strin
             setEditName(false);
           }}
         >
+          {/* Profile picture: choose from photos, take one, or go back to the initial */}
+          <div className="flex flex-col items-center gap-3">
+            <button type="button" aria-label="Choose profile picture" onClick={() => galleryRef.current?.click()} className="relative active:scale-95 transition-transform">
+              <ProfileAvatar name={name || profileName} photo={profilePhoto} size={96} />
+              {savingPhoto ? (
+                <span className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
+                  <Loader2 size={22} className="animate-spin text-white" />
+                </span>
+              ) : (
+                <span className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-white text-black flex items-center justify-center ring-2 ring-[#141417]">
+                  <Camera size={15} />
+                </span>
+              )}
+            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button type="button" disabled={savingPhoto} onClick={() => galleryRef.current?.click()} className="rounded-full bg-white/[0.08] px-3.5 py-1.5 text-xs font-semibold text-white flex items-center gap-1.5 active:bg-white/15 disabled:opacity-50">
+                <ImageIcon size={13} /> {profilePhoto ? 'Change photo' : 'Choose photo'}
+              </button>
+              <button type="button" disabled={savingPhoto} onClick={() => cameraRef.current?.click()} className="rounded-full bg-white/[0.08] px-3.5 py-1.5 text-xs font-semibold text-white flex items-center gap-1.5 active:bg-white/15 disabled:opacity-50">
+                <Camera size={13} /> Take photo
+              </button>
+              {profilePhoto && (
+                <button type="button" disabled={savingPhoto} onClick={() => setProfilePhoto(null)} className="rounded-full px-3.5 py-1.5 text-xs font-semibold text-red-300 flex items-center gap-1.5 active:bg-white/10 disabled:opacity-50">
+                  <Trash2 size={13} /> Remove
+                </button>
+              )}
+            </div>
+          </div>
           <Field label="Display name">
-            <input autoFocus value={name} maxLength={30} onChange={(e) => setName(e.target.value)} className={inputClass} />
+            <input value={name} maxLength={30} onChange={(e) => setName(e.target.value)} className={inputClass} />
           </Field>
           <PrimaryButton type="submit">Save</PrimaryButton>
         </form>
+        <input ref={galleryRef} type="file" accept="image/*" hidden onChange={pickPhoto} />
+        <input ref={cameraRef} type="file" accept="image/*" capture="user" hidden onChange={pickPhoto} />
       </Sheet>
 
       <ConfirmSheet

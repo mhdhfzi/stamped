@@ -86,6 +86,10 @@ interface StoreValue {
   /** Applies changes that came from a shared trip's group (not re-broadcast). */
   applyRemote(tripId: string, change: { upserts?: Stop[]; deletes?: string[]; trip?: Partial<Trip> }): Promise<void>;
   setProfileName(name: string): Promise<void>;
+  /** Small square-ish picture (data URL) shown on the Account page, or null for the initial. */
+  profilePhoto: string | null;
+  /** A new picture from the gallery or camera, or null to remove it. */
+  setProfilePhoto(file: File | null): Promise<void>;
   exportBackup(): Promise<Blob>;
   importBackup(file: File): Promise<number>;
   resetAll(): Promise<void>;
@@ -103,6 +107,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [homeCurrency, setHome] = useState(guessHomeCurrency);
   const [profileName, setName] = useState('Traveler');
+  const [profilePhoto, setPhoto] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const tripsRef = useRef(trips);
   const photosRef = useRef(photos);
@@ -128,6 +133,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (typeof hc === 'string' && hc) setHome(hc);
       const n = await repo.getMeta('profileName');
       if (typeof n === 'string' && n) setName(n);
+      const pp = await repo.getMeta('profilePhoto');
+      if (typeof pp === 'string' && pp) setPhoto(pp);
       setReady(true);
       navigator.storage?.persist?.().catch(() => undefined);
     })();
@@ -375,12 +382,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setName(n);
   }, []);
 
+  const setProfilePhoto = useCallback(async (file: File | null) => {
+    // Shrunk to 400px so it stays tiny in storage and backups.
+    const url = file ? await blobToDataURL(await compressImage(file, 400, 0.85)) : null;
+    await repoRef.current!.setMeta('profilePhoto', url);
+    setPhoto(url);
+  }, []);
+
   const exportBackup = useCallback(async () => {
     const data = {
       app: 'stamped',
       version: 3,
       exportedAt: new Date().toISOString(),
       profileName,
+      profilePhoto,
       trips: tripsRef.current,
       stops: stopsRef.current,
       expenses: expensesRef.current,
@@ -390,7 +405,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ),
     };
     return new Blob([JSON.stringify(data)], { type: 'application/json' });
-  }, [profileName, homeCurrency]);
+  }, [profileName, profilePhoto, homeCurrency]);
 
   const importBackup = useCallback(async (file: File) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -409,6 +424,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (Array.isArray(json.expenses)) await repo.putExpenses(json.expenses as Expense[]);
     if (typeof json.homeCurrency === 'string') await repo.setMeta('homeCurrency', json.homeCurrency);
     if (typeof json.profileName === 'string') await repo.setMeta('profileName', json.profileName);
+    if (typeof json.profilePhoto === 'string') await repo.setMeta('profilePhoto', json.profilePhoto);
     const all = await repo.loadAll();
     setTrips(all.trips);
     setPhotos(all.photos);
@@ -416,6 +432,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setExpenses(all.expenses);
     if (typeof json.homeCurrency === 'string') setHome(json.homeCurrency);
     if (typeof json.profileName === 'string') setName(json.profileName);
+    if (typeof json.profilePhoto === 'string') setPhoto(json.profilePhoto);
     return ps.length;
   }, []);
 
@@ -429,13 +446,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setStops([]);
     setExpenses([]);
     setName('Traveler');
+    setPhoto(null);
   }, []);
 
   const value: StoreValue = {
     ready, storageMode, trips, photos, stops, expenses, homeCurrency, profileName, toast, notify, photosOf, coverOf,
     addTrip, updateTrip, deleteTrip, addPhotos, updatePhoto, deletePhoto,
     stopsOf, addStop, updateStop, deleteStop, arrangeStops, reorderDay, setTripDates,
-    expensesOf, saveExpense, deleteExpense, setHomeCurrency, applyRemote, setProfileName,
+    expensesOf, saveExpense, deleteExpense, setHomeCurrency, applyRemote, setProfileName, profilePhoto, setProfilePhoto,
     exportBackup, importBackup, resetAll,
   };
 
