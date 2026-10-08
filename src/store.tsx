@@ -8,36 +8,24 @@ import { dayCount, uid } from './lib/utils';
 import { countryName } from './data/countries';
 import { guessHomeCurrency } from './data/currencies';
 
-const DEMO_IMG = (f: string) =>
-  `https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2F${f}.png&w=1280&q=85`;
+// Older versions filled a new device with four sample trips (Tokyo, Seoul, Bali, Rome) whose
+// cover photos came from this address. Everyone now starts empty, so remove those once.
+const SAMPLE_PHOTO_HOST = 'https://images.higgs.ai/';
 
-const DEMO = [
-  { code: 'JP', title: 'Tokyo', place: 'Shibuya', date: '2025-04-03', file: 'hf_20260704_101902_e8f0f37b-18b7-4c14-bb5c-99f0724d2646' },
-  { code: 'KR', title: 'Seoul', place: 'Bukchon', date: '2024-10-12', file: 'hf_20260704_101935_4b17f250-8ddb-4ff2-b63d-dfd3497d4428' },
-  { code: 'ID', title: 'Bali', place: 'Ubud', date: '2024-07-21', file: 'hf_20260704_101958_7116d6bf-fd6f-496f-b3cf-007688cd5123' },
-  { code: 'IT', title: 'Rome', place: 'Trastevere', date: '2023-05-09', file: 'hf_20260704_143008_72ee7299-04a8-474c-ae73-220d45b24a20' },
-];
-
-async function seedDemo(repo: Repo) {
-  const now = Date.now();
-  const photos: Photo[] = [];
-  for (const [i, d] of DEMO.entries()) {
-    const tripId = uid();
-    const photoId = uid();
-    photos.push({ id: photoId, tripId, url: DEMO_IMG(d.file), place: d.place, takenAt: new Date(`${d.date}T12:00:00`).getTime(), createdAt: now });
-    await repo.putTrip({ id: tripId, countryCode: d.code, title: d.title, coverPhotoId: photoId, createdAt: now - i * 1000 });
-  }
-  await repo.putPhotos(photos);
+async function removeSampleTrips(repo: Repo) {
+  const { trips, photos } = await repo.loadAll();
+  const sampleTrips = new Set(photos.filter((p) => p.url?.startsWith(SAMPLE_PHOTO_HOST)).map((p) => p.tripId));
+  for (const t of trips) if (sampleTrips.has(t.id) && !t.groupId) await repo.deleteTrip(t.id);
 }
 
-// Shared so concurrent mounts (e.g. React StrictMode) don't seed the demo twice.
+// Shared so concurrent mounts (e.g. React StrictMode) don't run the cleanup twice.
 let initPromise: Promise<Repo> | null = null;
 function initRepo() {
   initPromise ??= (async () => {
     const repo = await getRepo();
-    if (!(await repo.getMeta('seeded'))) {
-      await seedDemo(repo);
-      await repo.setMeta('seeded', true);
+    if (!(await repo.getMeta('samplesRemoved'))) {
+      await removeSampleTrips(repo);
+      await repo.setMeta('samplesRemoved', true);
     }
     return repo;
   })();
@@ -434,7 +422,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(async () => {
     const repo = repoRef.current!;
     await repo.clear();
-    await repo.setMeta('seeded', true);
+    await repo.setMeta('samplesRemoved', true);
     photosRef.current.forEach((p) => releasePhotoSrc(p.id));
     setTrips([]);
     setPhotos([]);

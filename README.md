@@ -296,7 +296,7 @@ groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, 
 - Dark, liquid-glass UI; Inter for interface text, **Instrument Serif** for display headlines; a 375×780 iPhone frame on desktop, full-screen on phones (< 520 px).
 - **Motion**: flag-ring splash; interactive 3D globe; stacking cards with 3D tilt & parallax; hover zoom & press feedback on cards; scroll-linked trip hero; scroll reveals; sliding tabs; sliding sheets.
 - **Accessibility**: every animation respects the system **Reduce motion** setting; focus rings for keyboard use; category colours validated for colour-blind safety and always paired with labels/icons; labelled controls.
-- The demo trips (Tokyo, Seoul, Bali, Rome) load on first launch — delete them anytime.
+- Everyone starts with an empty Trips page — add your own trip or join a friend's with their code.
 
 ---
 
