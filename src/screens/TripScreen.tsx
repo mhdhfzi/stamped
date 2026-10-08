@@ -8,6 +8,7 @@ const TripGroup = lazy(() => import('../components/group/TripGroup'));
 import { useStore } from '../store';
 import { getCountry } from '../data/countries';
 import { photoSrc } from '../lib/photoSrc';
+import { useFlag } from '../lib/flags';
 import { cn, dateRange, fmtDate, gradientFor, plural } from '../lib/utils';
 import { TripActionsSheet } from '../components/TripActionsSheet';
 import { TripPlan } from '../components/TripPlan';
@@ -37,6 +38,7 @@ export function TripScreen({ tripId, onBack, onOpenViewer }: Props) {
   const heroImg = useRef<HTMLDivElement>(null);
   const heroText = useRef<HTMLDivElement>(null);
   useReveal(scrollRef);
+  const flag = useFlag(trip?.countryCode);
 
   // Tab content slides in from the side of the tab you picked.
   const TABS = ['moments', 'plan', 'budget', 'pack'] as const;
@@ -102,6 +104,7 @@ export function TripScreen({ tripId, onBack, onOpenViewer }: Props) {
         <div className="relative h-[320px] overflow-hidden">
           <div ref={heroImg} className="absolute inset-0 origin-bottom will-change-transform">
             <div className="absolute inset-0" style={{ background: gradientFor(trip.countryCode + trip.title) }} />
+            {!cover && flag && <img src={flag} alt="" className="absolute inset-0 w-full h-full object-cover" />}
             {cover && <img src={cover} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} className="absolute inset-0 w-full h-full object-cover" />}
           </div>
           <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-[#0a0a0c]" />

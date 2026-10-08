@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MoreHorizontal, Plane } from 'lucide-react';
 import type { Trip } from '../types';
 import { cn, fitTitleSize, gradientFor } from '../lib/utils';
+import { useFlag } from '../lib/flags';
 
 interface Props {
   trip: Trip;
@@ -36,6 +37,7 @@ export function DestinationCard({ trip, cover, badge, upcoming, index, onOpen, o
   }
 
   const fs = fitTitleSize(trip.title, 300, 60, 28);
+  const flag = useFlag(cover ? undefined : trip.countryCode);
 
   return (
     // Outer layer: entrance animation only
@@ -56,6 +58,13 @@ export function DestinationCard({ trip, cover, badge, upcoming, index, onOpen, o
         )}
       >
         <div className="absolute inset-0" style={{ background: gradientFor(trip.countryCode + trip.title) }} />
+        {!cover && flag && (
+          // No photo yet: the country's flag is the cover, dimmed a little so the name stays readable.
+          <div className="absolute inset-0 transition-transform duration-700 ease-out group-hover:scale-[1.1] group-focus-visible:scale-[1.1]">
+            <img src={flag} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/30" />
+          </div>
+        )}
         {cover && (
           // Zoom wrapper (hover) around the photo, which drifts with the scroll (--parallax from the card stack)
           <div className="absolute inset-0 transition-transform duration-700 ease-out group-hover:scale-[1.1] group-focus-visible:scale-[1.1]">
