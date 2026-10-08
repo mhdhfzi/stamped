@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, Hand, Loader2, X } from 'lucide-react';
-import { authErrorMessage, signInWithGoogle } from '../../lib/cloud';
+import { authErrorMessage, finishGoogleRedirect, returningFromGoogle, signInWithGoogle } from '../../lib/cloud';
 import { AuthPanel } from '../group/AuthPanel';
 import { InteractiveGlobe } from './InteractiveGlobe';
 import { Emblem } from '../Emblem';
@@ -24,6 +24,19 @@ export function LoginScreen({ onSkip, onClose }: { onSkip?: () => void; onClose?
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [stamps, setStamps] = useState(0);
+  // Back from Google's sign-in page (phones): show progress, then any error, instead of a silent welcome screen.
+  const [finishing, setFinishing] = useState(returningFromGoogle);
+  useEffect(() => {
+    let live = true;
+    finishGoogleRedirect().then((err) => {
+      if (!live) return;
+      if (err) setError(err);
+      setFinishing(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // A fixed starfield (positions chosen once).
   const stars = useMemo(
@@ -101,11 +114,11 @@ export function LoginScreen({ onSkip, onClose }: { onSkip?: () => void; onClose?
         <div className="mt-7 space-y-3 login-rise" style={{ animationDelay: '760ms' }}>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || finishing}
             onClick={google}
             className="pointer-events-auto w-full rounded-full bg-white text-black py-3.5 text-[15px] font-semibold flex items-center justify-center gap-2.5 shadow-[0_8px_30px_rgba(255,255,255,0.15)] active:scale-[0.98] disabled:opacity-60"
           >
-            {busy ? <Loader2 size={17} className="animate-spin" /> : GOOGLE_G} Continue with Google
+            {busy || finishing ? <Loader2 size={17} className="animate-spin" /> : GOOGLE_G} {finishing ? 'Finishing sign-in…' : 'Continue with Google'}
           </button>
           {error && <p className="text-xs text-red-300">{error}</p>}
           <button type="button" onClick={() => setEmailOpen(true)} className="pointer-events-auto text-sm font-medium text-white/85 active:opacity-70">

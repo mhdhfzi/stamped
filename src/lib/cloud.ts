@@ -20,6 +20,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
+  getRedirectResult,
   signOut as fbSignOut,
   updateProfile,
   type User,
@@ -84,17 +85,62 @@ export function useCloudUser(): User | null | undefined {
 
 export const displayName = (u: Pick<User, 'displayName' | 'email'>) => u.displayName || u.email?.split('@')[0] || 'Traveller';
 
+const REDIRECT_KEY = 'stamped:google-redirect';
+
+/**
+ * Google sign-in. Phones (and home-screen apps) use a full-page redirect — pop-ups are unreliable
+ * there; it works because sign-in is served from our own domain (see cloudConfig.authDomain).
+ * Computers use a pop-up.
+ */
 export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider();
-  // Installed home-screen apps can't open popups reliably; use a full-page redirect there.
-  const standalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (standalone) return signInWithRedirect(auth, provider);
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const phone = window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(pointer: coarse)').matches;
+  const redirect = () => {
+    try {
+      sessionStorage.setItem(REDIRECT_KEY, '1');
+    } catch {
+      /* private mode: we just won't show "Finishing sign-in…" */
+    }
+    return signInWithRedirect(auth, provider);
+  };
+  if (phone) return redirect();
   try {
     await signInWithPopup(auth, provider);
   } catch (e) {
-    if ((e as { code?: string }).code === 'auth/popup-blocked') await signInWithRedirect(auth, provider);
+    if ((e as { code?: string }).code === 'auth/popup-blocked') await redirect();
     else throw e;
   }
+}
+
+/** True right after coming back from Google's sign-in page. */
+export function returningFromGoogle() {
+  try {
+    return sessionStorage.getItem(REDIRECT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+let redirectOutcome: Promise<string | null> | null = null;
+/** Completes a redirect sign-in: null if fine (or nothing to do), else a readable error. */
+export function finishGoogleRedirect(): Promise<string | null> {
+  redirectOutcome ??= getRedirectResult(auth)
+    .then(
+      () => null,
+      (e) => {
+        console.error('Google redirect sign-in failed', e);
+        return authErrorMessage(e);
+      },
+    )
+    .finally(() => {
+      try {
+        sessionStorage.removeItem(REDIRECT_KEY);
+      } catch {
+        /* ignore */
+      }
+    });
+  return redirectOutcome;
 }
 
 export async function signUpWithEmail(name: string, email: string, password: string) {
@@ -122,7 +168,11 @@ export function authErrorMessage(e: unknown): string {
     'auth/popup-closed-by-user': 'Sign-in was cancelled.',
     'auth/network-request-failed': 'No connection — check your internet and try again.',
     'auth/operation-not-allowed': 'This sign-in method isn’t enabled in the Firebase project yet.',
-    'auth/unauthorized-domain': 'This web address isn’t allowed to sign in yet — add it in Firebase → Authentication → Settings → Authorized domains.',
+    'auth/redirect-cancelled-by-user': 'Sign-in was cancelled.',
+    'auth/web-storage-unsupported': 'This browser blocks the storage sign-in needs — turn off private mode, or use email.',
+    'auth/missing-initial-state': 'Sign-in couldn’t finish in this browser. Please try again, or use email.',
+    'auth/internal-error': 'Google sign-in isn’t fully set up yet (check the authorised redirect address). Use email for now.',
+    'auth/unauthorized-domain':'This web address isn’t allowed to sign in yet — add it in Firebase → Authentication → Settings → Authorized domains.',
   };
   return map[code] ?? 'Something went wrong. Please try again.';
 }
