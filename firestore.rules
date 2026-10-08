@@ -52,6 +52,10 @@ service cloud.firestore {
         allow read: if isMember(groupId);
         allow create: if isMember(groupId) && request.resource.data.uid == request.auth.uid;
         allow delete: if isMember(groupId) && resource.data.uid == request.auth.uid;
+        // "Delete for everyone": only the sender, and only blanking it out.
+        allow update: if isMember(groupId) && resource.data.uid == request.auth.uid
+          && request.resource.data.deleted == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleted', 'text', 'media', 'plan']);
       }
 
       // Shared photos: details and the picture itself. Anyone in the trip can remove one.

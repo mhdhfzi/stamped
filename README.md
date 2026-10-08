@@ -96,6 +96,7 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 - **One live plan** for everyone: places, days, hotels and dates sync both ways in real time
 - **Shared photos**: moments added to a shared trip appear on everyone's phone (including ones added before a friend joined); removing one removes it for all
 - **Photos & videos in the chat**, WhatsApp-style: **+** → Camera · Gallery · Video · Day plan, or the 📷 in the message box. In-app camera: **tap for a photo, hold to record** (or the Video mode), flip camera, up to 60 s; pick several photos/videos from the gallery (videos up to 20 MB); preview with a caption before sending; upload progress; full-screen viewer with save
+- **Delete messages**: long-press (or right-click) a message → **Delete for everyone** (your own; shows *This message was deleted* and removes its photo/video) · **Delete for me** (any message, hidden on this phone) · Copy text
 - **Group chat** per trip: messages, **typing…** indicator, **read receipts** (✓ sent · ✓✓ seen · *Seen by Aina, Ben* — tap your message for who hasn't), automatic notes (*Aina added Tsukiji Outer Market to Day 2*), and 📍 **Remind the group** — a card with tomorrow's places and start/end hotel
 - **Shared expenses**: who paid, split equally between chosen people (any currency), each person's balance, **Settle up** with the fewest payments, **Mark paid**
 - **Members**: invite code, share link, organiser badge, leave the group (ownership passes on)

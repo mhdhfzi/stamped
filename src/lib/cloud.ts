@@ -355,6 +355,8 @@ export interface ChatMessage {
   text: string;
   plan?: PlanCard;
   media?: ChatMedia;
+  /** Deleted for everyone by its sender (shown as "This message was deleted"). */
+  deleted?: boolean;
   createdAt: Date | null;
 }
 
@@ -422,6 +424,20 @@ export async function sendMedia(
   }
   const media: ChatMedia = { ...info, id, size: bytes.length, chunks };
   await send(groupId, user, { type: info.kind, text: caption.trim(), media });
+}
+
+/**
+ * Delete for everyone (your own messages): the message stays as a "deleted" marker so the
+ * conversation still reads right, and its photo/video pieces are removed for good.
+ */
+export async function deleteMessageForEveryone(groupId: string, m: ChatMessage) {
+  await updateDoc(doc(db, 'groups', groupId, 'messages', m.id), { deleted: true, text: '', media: deleteField(), plan: deleteField() });
+  if (!m.media) return;
+  for (let i = 0; i < m.media.chunks; i += 400) {
+    const batch = writeBatch(db);
+    for (let j = i; j < Math.min(i + 400, m.media.chunks); j++) batch.delete(doc(db, 'groups', groupId, 'media', `${m.media.id}_${j}`));
+    await batch.commit().catch((e) => console.error('Media pieces not removed', e));
+  }
 }
 
 const mediaUrls = new Map<string, Promise<string>>();

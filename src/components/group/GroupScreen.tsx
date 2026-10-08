@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { User } from 'firebase/auth';
-import { ArrowRight, BedDouble, Camera, Check, CheckCheck, ChevronLeft, Images, Plus, Video, Copy, Crown, HandCoins, Loader2, LogOut, MapPinned, MessageCircle, Send, Share2, Trash2, Users, Wallet } from 'lucide-react';
+import { ArrowRight, Ban, BedDouble, Camera, EyeOff, Check, CheckCheck, ChevronLeft, Images, Plus, Video, Copy, Crown, HandCoins, Loader2, LogOut, MapPinned, MessageCircle, Send, Share2, Trash2, Users, Wallet } from 'lucide-react';
 import type { ExpenseCategory, Stop, Trip } from '../../types';
 import { currencyOf } from '../../data/currencies';
 import { useStore } from '../../store';
@@ -19,6 +19,7 @@ import {
   subscribeMessages,
   subscribeStatus,
   cloudErrorMessage,
+  deleteMessageForEveryone,
   type ChatMessage,
   type MemberStatus,
   type Group,
@@ -35,7 +36,7 @@ import { addDays, cn, dayCount, fmtDate, fromDateInput, toDateInput } from '../.
 import { AmountField, CATEGORIES, useRates } from '../TripBudget';
 import { placeTitle } from '../StaySheet';
 import { dayLabel } from '../PlanSheets';
-import { ConfirmSheet, Field, PrimaryButton, Sheet, inputClass } from '../ui';
+import { ConfirmSheet, Field, PrimaryButton, Sheet, SheetRow, inputClass } from '../ui';
 
 type Tab = 'chat' | 'expenses' | 'members';
 
@@ -148,6 +149,64 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
   const [viewing, setViewing] = useState<ChatMessage | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
+  // Deleting: long-press (or right-click) a message for its options. "Delete for me" is remembered on this phone.
+  const [actionFor, setActionFor] = useState<ChatMessage | null>(null);
+  const [pressing, setPressing] = useState<string | null>(null);
+  const hiddenKey = `stamped:hidden:${group.id}`;
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(hiddenKey) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const shown = messages?.filter((m) => !hidden.has(m.id));
+  function hideForMe(id: string) {
+    const next = new Set(hidden).add(id);
+    setHidden(next);
+    try {
+      localStorage.setItem(hiddenKey, JSON.stringify([...next]));
+    } catch {
+      /* private mode: hidden until you leave the chat */
+    }
+  }
+  const pressTimer = useRef<number>();
+  const longPressed = useRef(false);
+  function pressHandlers(m: ChatMessage) {
+    const cancel = () => {
+      window.clearTimeout(pressTimer.current);
+      setPressing(null);
+    };
+    return {
+      onPointerDown: () => {
+        longPressed.current = false;
+        setPressing(m.id);
+        pressTimer.current = window.setTimeout(() => {
+          longPressed.current = true;
+          setPressing(null);
+          navigator.vibrate?.(15);
+          setActionFor(m);
+        }, 450);
+      },
+      onPointerUp: cancel,
+      onPointerLeave: cancel,
+      onPointerCancel: cancel,
+      onContextMenu: (e: MouseEvent) => {
+        e.preventDefault();
+        cancel();
+        setActionFor(m);
+      },
+      // The tap that ends a long-press shouldn't also open the photo or toggle "Seen by".
+      onClickCapture: (e: MouseEvent) => {
+        if (longPressed.current) {
+          e.stopPropagation();
+          e.preventDefault();
+          longPressed.current = false;
+        }
+      },
+    };
+  }
+
   function upload(item: Prepared, caption: string) {
     const patch = (p: Partial<{ progress: number; failed: boolean }>) => setSending((list) => list.map((s) => (s.item.key === item.key ? { ...s, ...p } : s)));
     setSending((list) => [...list.filter((s) => s.item.key !== item.key), { item, caption, progress: 0 }]);
@@ -245,14 +304,14 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
           </div>
         )}
         {messages?.length === 0 && <p className="pt-10 text-center text-sm text-white/40">Say hi to your travel buddies 👋</p>}
-        {messages?.map((m, i) => {
+        {shown?.map((m, i) => {
           const mine = m.uid === user.uid;
-          const prev = messages[i - 1];
+          const prev = shown[i - 1];
           const showName = !mine && m.type !== 'activity' && (prev?.uid !== m.uid || prev?.type === 'activity');
           const time = m.createdAt ? m.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
           if (m.type === 'activity') {
             return (
-              <p key={m.id} className="text-center text-[11px] text-white/40 py-1">
+              <p key={m.id} {...pressHandlers(m)} className="text-center text-[11px] text-white/40 py-1 select-none">
                 <span className="text-white/60">{nameOf(m.uid)}</span> {m.text} · {time}
               </p>
             );
@@ -264,10 +323,15 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
             <div key={m.id} className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
               {showName && <span className="text-[10px] text-white/40 ml-2 mb-0.5">{group.memberInfo[m.uid]?.name ?? m.name}</span>}
               <div
-                className={cn('contents', mine && 'cursor-pointer')}
-                onClick={mine ? () => setInfoFor(infoFor === m.id ? null : m.id) : undefined}
+                className={cn('contents select-none [-webkit-touch-callout:none]', mine && 'cursor-pointer', pressing === m.id && '[&>*]:scale-[0.97] [&>*]:transition-transform')}
+                {...pressHandlers(m)}
+                onClick={mine && !m.deleted ? () => setInfoFor(infoFor === m.id ? null : m.id) : undefined}
               >
-                {m.type === 'plan' && m.plan ? (
+                {m.deleted ? (
+                  <p className={cn('max-w-[78%] rounded-2xl px-3.5 py-2 text-sm italic flex items-center gap-1.5 border', mine ? 'border-white/20 text-white/55 rounded-br-md' : 'border-white/10 text-white/45 rounded-bl-md')}>
+                    <Ban size={13} /> {mine ? 'You deleted this message' : 'This message was deleted'}
+                  </p>
+                ) : m.type === 'plan' && m.plan ? (
                   <PlanCardView plan={m.plan} start={trip.startDate} mine={mine} />
                 ) : m.media ? (
                   <MediaBubble groupId={group.id} media={m.media} caption={m.text} mine={mine} onOpen={() => setViewing(m)} />
@@ -277,7 +341,7 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
               </div>
               <span className="text-[9px] text-white/30 mx-2 mt-0.5 flex items-center gap-1">
                 {m.createdAt ? time : 'Sending…'}
-                {mine && m.createdAt && (
+                {mine && m.createdAt && !m.deleted && (
                   allSeen ? <CheckCheck size={12} className="text-sky-400" aria-label="Read by everyone" /> : seen.length ? <CheckCheck size={12} className="text-white/50" aria-label="Read by some" /> : <Check size={11} className="text-white/40" aria-label="Sent" />
                 )}
               </span>
@@ -440,6 +504,54 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
       {viewing?.media && (
         <MediaViewer groupId={group.id} media={viewing.media} caption={viewing.text} title={`${nameOf(viewing.uid)} · ${viewing.createdAt?.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) ?? ''}`} onClose={() => setViewing(null)} />
       )}
+
+      <Sheet open={!!actionFor} onClose={() => setActionFor(null)} title="Message">
+        {actionFor && (
+          <div className="space-y-1">
+            <p className="mb-3 rounded-2xl bg-white/[0.05] px-3.5 py-2.5 text-sm text-white/70 line-clamp-3">
+              {actionFor.deleted ? 'Deleted message' : actionFor.type === 'photo' ? `📷 Photo${actionFor.text ? ` · ${actionFor.text}` : ''}` : actionFor.type === 'video' ? `🎥 Video${actionFor.text ? ` · ${actionFor.text}` : ''}` : actionFor.type === 'activity' ? `${nameOf(actionFor.uid)} ${actionFor.text}` : actionFor.text}
+            </p>
+            {actionFor.text && !actionFor.deleted && actionFor.type !== 'activity' && (
+              <SheetRow
+                icon={<Copy size={18} />}
+                label="Copy text"
+                onClick={async () => {
+                  await navigator.clipboard?.writeText(actionFor.text).catch(() => undefined);
+                  notify('Copied');
+                  setActionFor(null);
+                }}
+              />
+            )}
+            {actionFor.uid === user.uid && !actionFor.deleted && actionFor.type !== 'activity' && actionFor.createdAt && (
+              <SheetRow
+                icon={<Trash2 size={18} />}
+                label="Delete for everyone"
+                danger
+                onClick={async () => {
+                  const m = actionFor;
+                  setActionFor(null);
+                  try {
+                    await deleteMessageForEveryone(group.id, m);
+                    notify('Deleted for everyone');
+                  } catch (err) {
+                    notify(`Couldn’t delete — ${cloudErrorMessage(err)}`);
+                  }
+                }}
+              />
+            )}
+            <SheetRow
+              icon={<EyeOff size={18} />}
+              label="Delete for me"
+              danger
+              onClick={() => {
+                hideForMe(actionFor.id);
+                setActionFor(null);
+                notify('Deleted from this phone');
+              }}
+            />
+          </div>
+        )}
+      </Sheet>
 
       <PlanSheet open={planOpen} onClose={() => setPlanOpen(false)} trip={trip} stops={stopsOf(trip.id)} onSend={(plan) => sendPlan(group.id, user, plan).then(() => pushToGroup(group.id, user, `📍 Plan for Day ${plan.day + 1}: ${plan.stops.map((s) => s.name).join(', ') || 'free day'}`))} />
     </>
