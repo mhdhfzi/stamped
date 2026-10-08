@@ -265,7 +265,8 @@ stamped/
     │   ├── geo.ts                # Place/hotel search, routes, Google Maps links
     │   ├── optimize.ts           # Route order, split across days (incl. multi-city)
     │   ├── stays.ts              # Hotels per night, moving days
-    │   ├── popular.ts            # Popular places from Wikidata (cached)
+    │   ├── popular.ts            # Popular places from Wikidata + OpenStreetMap (cached)
+    │   ├── transit.ts            # Transit routes via api/route.js (Google Routes API)
     │   ├── money.ts · split.ts   # Rates, conversion, amount parsing; shared-expense balances
     │   ├── tripStatus.ts         # Upcoming status, photo ↔ plan-day matching
     │   ├── cloud.ts              # Firebase: auth, groups, sync, chat, expenses (lazy)
