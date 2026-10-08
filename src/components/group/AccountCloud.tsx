@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Loader2, LogOut, UserPlus, Users } from 'lucide-react';
 import { displayName, signOut, useCloudUser } from '../../lib/cloud';
 import JoinTrip from './JoinTrip';
+import { PushRow } from './PushControls';
 import { SheetRow } from '../ui';
 
 /** Account → "Friends & sharing": sign in/out, join a trip with a code. */
@@ -24,6 +25,7 @@ export default function AccountCloud({ onOpenTrip, onSignIn }: { onOpenTrip: (id
               <p className="text-[11px] text-white/40">{user.email ?? 'Signed in'}</p>
             </div>
             <SheetRow icon={<UserPlus size={18} />} label="Join a trip with a code" onClick={() => setJoinOpen(true)} />
+            <PushRow user={user} />
             <SheetRow icon={<LogOut size={18} />} label="Sign out" onClick={() => signOut()} />
           </>
         ) : (

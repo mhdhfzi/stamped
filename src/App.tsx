@@ -16,15 +16,22 @@ const CloudSync = lazy(() => import('./components/CloudSync'));
 const JoinTrip = lazy(() => import('./components/group/JoinTrip'));
 const LoginGate = lazy(() => import('./components/login/LoginGate'));
 
-/** An invite link (…?join=CODE) opens the join sheet; the code is removed from the address bar. */
-function takeJoinCode(): string | null {
+/**
+ * Read once when the app loads, then removed from the address bar:
+ * an invite link (…?join=CODE) opens the join sheet; a tapped chat notification (…?chat=GROUP_ID) opens that chat.
+ * (Module level, so it runs exactly once — not twice like state setup in development.)
+ */
+const launch = (() => {
   const url = new URL(location.href);
-  const code = url.searchParams.get('join');
-  if (!code) return null;
-  url.searchParams.delete('join');
-  history.replaceState(null, '', url.pathname + url.search + url.hash);
-  return code;
-}
+  const join = url.searchParams.get('join');
+  const chat = url.searchParams.get('chat');
+  if (join || chat) {
+    url.searchParams.delete('join');
+    url.searchParams.delete('chat');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+  return { join, chat };
+})();
 
 export default function App() {
   return (
@@ -37,13 +44,13 @@ export default function App() {
 }
 
 function Shell() {
-  const { ready, toast } = useStore();
+  const { ready, toast, trips } = useStore();
   const [tab, setTab] = useState<Tab>('trips');
   const [tripId, setTripId] = useState<string | null>(null);
   const [region, setRegion] = useState<RegionFilter>('Everywhere');
   const [year, setYear] = useState<number | null>(null);
   const [viewer, setViewer] = useState<{ ids: string[]; index: number } | null>(null);
-  const [joinCode, setJoinCode] = useState<string | null>(() => (cloudConfigured ? takeJoinCode() : null));
+  const [joinCode, setJoinCode] = useState<string | null>(() => (cloudConfigured ? launch.join : null));
   const [loginOpen, setLoginOpen] = useState(false);
   const closeLogin = useCallback(() => setLoginOpen(false), []);
 
@@ -75,8 +82,29 @@ function Shell() {
 
   const openTrip = useCallback((id: string) => {
     setTab('trips');
+    setChatTrip(null);
     setTripId(id);
   }, []);
+  // Chat notifications: open that trip with its chat showing.
+  const [chatGroup, setChatGroup] = useState<string | null>(() => (cloudConfigured ? launch.chat : null));
+  const [chatTrip, setChatTrip] = useState<string | null>(null);
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMsg = (e: MessageEvent) => e.data?.type === 'open-chat' && setChatGroup(String(e.data.groupId));
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, []);
+  useEffect(() => {
+    if (!chatGroup || !ready) return;
+    const t = trips.find((x) => x.groupId === chatGroup);
+    if (t) {
+      setTab('trips');
+      setChatTrip(t.id);
+      setTripId(t.id);
+    }
+    setChatGroup(null);
+  }, [chatGroup, ready, trips]);
+
   const openViewer = useCallback((ids: string[], index: number) => setViewer({ ids, index }), []);
   const closeViewer = useCallback(() => setViewer(null), []);
 
@@ -87,7 +115,7 @@ function Shell() {
         <>
           {/* Screens mount as the splash fades, so their entrance animations are seen. */}
           {splash !== 'show' && tab === 'trips' && !tripId && <TripsScreen region={region} setRegion={setRegion} year={year} setYear={setYear} onOpenTrip={openTrip} />}
-          {splash !== 'show' && tab === 'trips' && tripId && <TripScreen key={tripId} tripId={tripId} onBack={() => setTripId(null)} onOpenViewer={openViewer} />}
+          {splash !== 'show' && tab === 'trips' && tripId && <TripScreen key={`${tripId}:${chatTrip === tripId}`} tripId={tripId} openChat={chatTrip === tripId} onBack={() => { setTripId(null); setChatTrip(null); }} onOpenViewer={openViewer} />}
           {tab === 'feed' && <FeedScreen onOpenTrip={openTrip} onOpenViewer={openViewer} />}
           {tab === 'account' && <AccountScreen onOpenTrip={openTrip} onSignIn={() => setLoginOpen(true)} />}
 

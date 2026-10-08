@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, MessageCircle, Users, Wallet, MapPinned } from 'lucide-react';
+import { Images, Loader2, MessageCircle, Users, Wallet, MapPinned } from 'lucide-react';
 import type { Trip } from '../../types';
 import { useStore } from '../../store';
 import { createGroup, useCloudUser } from '../../lib/cloud';
@@ -35,6 +35,7 @@ export default function TripGroup({ trip, onClose }: { trip: Trip; onClose: () =
               [
                 [MapPinned, 'One shared plan', 'Everyone sees and edits the same days, places, hotels and dates — live.'],
                 [MessageCircle, 'Group chat', 'Talk in the trip, and send “tomorrow we go to…” reminders.'],
+                [Images, 'Shared photos', 'Everyone’s moments from the trip, on everyone’s phone.'],
                 [Wallet, 'Split expenses', 'Log who paid, and see who owes whom.'],
               ] as const
             ).map(([Icon, title, body]) => (
@@ -49,7 +50,7 @@ export default function TripGroup({ trip, onClose }: { trip: Trip; onClose: () =
               </li>
             ))}
           </ul>
-          <p className="text-[11px] text-white/40">Your photos, personal budget and packing list stay private.</p>
+          <p className="text-[11px] text-white/40">Your personal budget and packing list stay private.</p>
           <PrimaryButton
             disabled={busy}
             onClick={async () => {

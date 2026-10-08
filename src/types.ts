@@ -115,4 +115,8 @@ export interface Photo {
   lat?: number;
   lng?: number;
   createdAt: number;
+  /** Shared trips: this photo is in the group (uploaded by you, or received from a friend). */
+  synced?: boolean;
+  /** Shared trips: uid of whoever added it. */
+  addedBy?: string;
 }

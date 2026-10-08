@@ -32,8 +32,11 @@ function initRepo() {
   return initPromise;
 }
 
-/** A local edit to something a shared trip syncs (its places or its details). */
-export type LocalChange = { kind: 'stops'; tripId: string; upserts: Stop[]; deletes: string[] } | { kind: 'trip'; trip: Trip; patch: Partial<Trip> };
+/** A local edit to something a shared trip syncs (its places, details or photos). */
+export type LocalChange =
+  | { kind: 'stops'; tripId: string; upserts: Stop[]; deletes: string[] }
+  | { kind: 'trip'; trip: Trip; patch: Partial<Trip> }
+  | { kind: 'photos'; tripId: string; added: Photo[]; deleted: Photo[] };
 
 // Set by the cloud sync (loaded only when a trip is shared), so plain local use stays dependency-free.
 let localChangeHook: ((c: LocalChange) => void) | null = null;
@@ -85,6 +88,7 @@ interface StoreValue {
   setHomeCurrency(code: string): Promise<void>;
   /** Applies changes that came from a shared trip's group (not re-broadcast). */
   applyRemote(tripId: string, change: { upserts?: Stop[]; deletes?: string[]; trip?: Partial<Trip> }): Promise<void>;
+  applyRemotePhotos(tripId: string, added: Photo[], deleted: string[]): Promise<void>;
   setProfileName(name: string): Promise<void>;
   /** Small square-ish picture (data URL) shown on the Account page, or null for the initial. */
   profilePhoto: string | null;
@@ -208,9 +212,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       if (!out.length) return 0;
       await repoRef.current!.putPhotos(out);
+      photosRef.current = [...photosRef.current, ...out];
       setPhotos((s) => [...s, ...out]);
       const trip = tripsRef.current.find((t) => t.id === tripId);
       if (trip && !trip.coverPhotoId) await updateTrip(tripId, { coverPhotoId: out[0].id });
+      emitLocalChange({ kind: 'photos', tripId, added: out, deleted: [] });
       return out.length;
     },
     [updateTrip],
@@ -226,14 +232,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const deletePhoto = useCallback(
     async (id: string) => {
+      const p = photosRef.current.find((x) => x.id === id);
       await repoRef.current!.deletePhoto(id);
       releasePhotoSrc(id);
-      setPhotos((s) => s.filter((p) => p.id !== id));
+      photosRef.current = photosRef.current.filter((x) => x.id !== id);
+      setPhotos((s) => s.filter((x) => x.id !== id));
       const t = tripsRef.current.find((x) => x.coverPhotoId === id);
       if (t) await updateTrip(t.id, { coverPhotoId: undefined });
+      if (p) emitLocalChange({ kind: 'photos', tripId: p.tripId, added: [], deleted: [p] });
     },
     [updateTrip],
   );
+
+  /** Photos a friend added to (or removed from) a shared trip — saved locally without being sent back. */
+  const applyRemotePhotos = useCallback(async (tripId: string, added: Photo[], deleted: string[]) => {
+    const repo = repoRef.current!;
+    if (added.length) await repo.putPhotos(added);
+    for (const id of deleted) {
+      await repo.deletePhoto(id);
+      releasePhotoSrc(id);
+    }
+    const del = new Set(deleted);
+    const ids = new Set(added.map((p) => p.id));
+    photosRef.current = [...photosRef.current.filter((p) => !del.has(p.id) && !ids.has(p.id)), ...added];
+    setPhotos(photosRef.current);
+    const t = tripsRef.current.find((x) => x.id === tripId);
+    if (!t) return;
+    const coverGone = t.coverPhotoId && del.has(t.coverPhotoId);
+    if (coverGone || (!t.coverPhotoId && added.length)) {
+      const next = { ...t, coverPhotoId: coverGone ? undefined : added[0].id };
+      await repo.putTrip(next);
+      tripsRef.current = tripsRef.current.map((x) => (x.id === tripId ? next : x));
+      setTrips((s) => s.map((x) => (x.id === tripId ? next : x)));
+    }
+  }, []);
 
   const stopsByTrip = useMemo(() => {
     const m = new Map<string, Stop[]>();
@@ -453,7 +485,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ready, storageMode, trips, photos, stops, expenses, homeCurrency, profileName, toast, notify, photosOf, coverOf,
     addTrip, updateTrip, deleteTrip, addPhotos, updatePhoto, deletePhoto,
     stopsOf, addStop, updateStop, deleteStop, arrangeStops, reorderDay, setTripDates,
-    expensesOf, saveExpense, deleteExpense, setHomeCurrency, applyRemote, setProfileName, profilePhoto, setProfilePhoto,
+    expensesOf, saveExpense, deleteExpense, setHomeCurrency, applyRemote, applyRemotePhotos, setProfileName, profilePhoto, setProfilePhoto,
     exportBackup, importBackup, resetAll,
   };
 

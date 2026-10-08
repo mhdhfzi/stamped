@@ -3,7 +3,7 @@
  * becomes a ~300–600 KB JPEG. EXIF orientation is respected.
  * Falls back to the original file if the browser can't decode it (e.g. HEIC on Chrome).
  */
-export async function compressImage(file: File, maxDim = 1800, quality = 0.85): Promise<Blob> {
+export async function compressImage(file: Blob, maxDim = 1800, quality = 0.85): Promise<Blob> {
   try {
     const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
     const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));

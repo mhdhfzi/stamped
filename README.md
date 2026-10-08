@@ -4,7 +4,7 @@ Stamped is a mobile travel app. Add every country you travel to, fill each one w
 
 It's a **Progressive Web App (PWA)** built with React + TypeScript: it runs in any phone browser, installs to the home screen like a native app, works **offline**, and can later be wrapped into an App Store / Play Store app with Capacitor.
 
-> **Local-first & private.** Your photos, personal budget and packing lists live only on your device. Nothing leaves it unless you sign in and share a trip — and even then only that trip's plan, its group chat and its shared expenses are synced.
+> **Local-first & private.** Your photos, personal budget and packing lists live only on your device. Nothing leaves it unless you sign in and share a trip — and even then only that trip's plan, its photos, its group chat and its shared expenses are synced.
 
 ---
 
@@ -94,14 +94,16 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 - **Sign in** with Google or email
 - **Share a trip** → a 6-letter invite code and link; friends join from the link or Account → *Join a trip with a code*
 - **One live plan** for everyone: places, days, hotels and dates sync both ways in real time
-- **Group chat** per trip: messages, automatic notes (*Aina added Tsukiji Outer Market to Day 2*), and 📍 **Remind the group** — a card with tomorrow's places and start/end hotel
+- **Shared photos**: moments added to a shared trip appear on everyone's phone (including ones added before a friend joined); removing one removes it for all
+- **Group chat** per trip: messages, **typing…** indicator, **read receipts** (✓ sent · ✓✓ seen · *Seen by Aina, Ben* — tap your message for who hasn't), automatic notes (*Aina added Tsukiji Outer Market to Day 2*), and 📍 **Remind the group** — a card with tomorrow's places and start/end hotel
 - **Shared expenses**: who paid, split equally between chosen people (any currency), each person's balance, **Settle up** with the fewest payments, **Mark paid**
 - **Members**: invite code, share link, organiser badge, leave the group (ownership passes on)
+- **Notifications** *(optional setup below)*: a phone alert when a friend messages or adds photos, even with the app closed; tap it to open that chat
 
 ### Feed, photo viewer & account
 - **Feed** — every moment from every trip, newest first; All / Favourites; tap a trip name to jump to it
 - **Photo viewer** — swipe, ♥, edit caption / place / date, set as cover, share (native share sheet), delete; shows *Day 2 · 📍 Sensō-ji* when linked to the plan
-- **Account** — name & avatar; stats (countries, moments, regions, favourites); **World explored** (x of 195, per region); **Passport stamps** & **Next stamps**; **Friends & sharing** (sign in/out, join a trip); **Money** (home currency, total spent on all trips); **Export / Import backup** (one `.json` with trips, photos, plans, expenses); storage used; delete all data
+- **Account** — name & avatar; stats (countries, moments, regions, favourites); **World explored** (x of 195, per region); **Passport stamps** & **Next stamps**; **Friends & sharing** (sign in/out, join a trip, chat notifications); **Money** (home currency, total spent on all trips); **Export / Import backup** (one `.json` with trips, photos, plans, expenses); storage used; delete all data
 
 ---
 
@@ -123,7 +125,8 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 | FOSSGIS OSRM | Walking / driving routes, travel-time tables | Straight-line estimate (marked ≈) |
 | Wikidata | Popular places (ranked by Wikipedia coverage) | Cached 30 days on the device |
 | open.er-api.com (fallback: currency-api on jsDelivr) | Exchange rates | Cached; refreshed every 12 h |
-| Firebase Auth + Firestore | Accounts, shared trips, chat, shared expenses | Firestore offline cache |
+| Firebase Auth + Firestore | Accounts, shared trips, photos, chat, shared expenses | Firestore offline cache |
+| Firebase Cloud Messaging + `api/notify.js` (Vercel function) | Chat notifications | Skipped; the in-app badge still shows |
 
 **Algorithms worth knowing**
 - *Optimise order*: exact shortest path (Held–Karp) for up to 12 places, nearest-neighbour + 2-opt above that, with fixed start/end hotels
@@ -146,7 +149,8 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 | Maps | **Leaflet** + OpenStreetMap | Free, no API keys |
 | 3D globe | **d3-geo** + **topojson-client** + **world-atlas** (110 m) | Orthographic globe on `<canvas>`, great-circle routes |
 | Flags | **flag-icons** (20 bundled SVGs) | Real flag images — Windows can't draw flag emoji |
-| Backend (optional) | **Firebase** Auth + Firestore, `firestore.rules` | Sign-in, real-time sync, chat, security rules |
+| Backend (optional) | **Firebase** Auth + Firestore, `firestore.rules` | Sign-in, real-time sync, chat, shared photos, security rules |
+| Notifications (optional) | **Firebase Cloud Messaging**, `public/push-sw.js`, `api/notify.js` with `firebase-admin` | Phone alerts for group chats (free; runs as a Vercel function) |
 | Local testing | Firebase **Emulator Suite** (firebase-tools 13, Java 11+) | Test sharing without touching the real project |
 | Web platform | PWA manifest, Web Share API, IntersectionObserver, `prefers-reduced-motion` | Installable, native share, scroll reveals, accessibility |
 
@@ -203,6 +207,11 @@ Sharing needs your own free Firebase project (Spark plan is enough):
 7. **When you deploy**, add the same `VITE_FIREBASE_*` variables to the host, and your site's domain under Authentication → Settings → *Authorized domains*.
 
 The config values are public client settings, not secrets — access is protected by the rules. `.env` is git-ignored.
+
+### Chat notifications (optional)
+ alerts need two keys. Without them everything else works, and *Account → Chat notifications* shows *Not set up yet*.
+. **Web Push key** — Firebase console → Project settings → *Cloud Messaging* → *Web Push certificates* → **Generate key pair** → copy the key. Add it to `.env` **and** to Vercel (Settings → Environment Variables) as `VITE_FIREBASE_VAPID_KEY=…`.. **Server key** — Project settings → *Service accounts* → **Generate new private key** (downloads a `.json`). In Vercel add a variable `FIREBASE_SERVICE_ACCOUNT` and paste the **whole file content** as its value. This one is a secret: never commit it or put it in `.env`.. **Redeploy** (Vercel → Deployments → ⋯ → Redeploy), then on each phone: *Account → Chat notifications* (or the banner in a group chat) → allow.
+ iPhone (iOS 16.4+), notifications only work from the **Home Screen** app, not a Safari tab.
 
 **Test without a project:** `npm run emulators` in one terminal, `npm run dev:emulators` in another — accounts and data stay on your computer.
 
@@ -278,7 +287,7 @@ groups/{groupId}            → name, countryCode, ownerId, members[], memberInf
                                trip { title, startDate, endDate, stays, travelMode }
 groups/{id}/stops/{stopId}  → the shared plan (one document per place)
 groups/{id}/messages/{id}   → chat: text · activity · plan card
-groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, splitWith[], createdBy
+groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, splitWith[], createdBy/{id}/photos/{id}     → shared photo details: takenAt, place, caption, lat/lng, addedBy/{id}/photoData/{id}  → the picture (JPEG data URL, ≤ 600 KB, kept apart so the list stays light)/{id}/status/{uid}    → typingAt, readAt (typing indicator & read receipts)/{uid}                 → tokens[] (this person's devices for notifications)
 ```
 
 **Backups** are one `.json` file with trips, photos (base64), plans, expenses and settings.
@@ -286,7 +295,7 @@ groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, 
 ---
 
 ## 🔒 Privacy & security
-- Photos, personal budgets and packing lists are **never uploaded**.
+- Photos are **only uploaded for trips you share** (a resized copy, visible to that trip's members). Personal budgets and packing lists are **never uploaded**.
 - Shared data is protected by **`firestore.rules`**: only members can read or write a trip; joining needs the invite code; a non-member can only add themselves; nobody can post as someone else; only the organiser can hand over ownership. (Tested on the emulator with an outsider account.)
 - No analytics or trackers. Map tiles, search and routing requests go to the public OpenStreetMap / FOSSGIS servers; rates and popular places are fetched anonymously.
 
@@ -301,7 +310,8 @@ groups/{id}/expenses/{id}   → amount, currency, category, note, date, paidBy, 
 ---
 
 ## ⚠️ Known limits
-- Reminders are posted by tapping 📍 — automatic phone push notifications need Firebase Cloud Messaging + a scheduled Cloud Function (paid Blaze plan).
+- Reminders are posted by tapping 📍; *scheduled* reminders (e.g. every evening automatically) would need a scheduled server job.
+- Shared photos are resized to fit Firestore's 1 MB document limit (about 1440 px); the free plan's 1 GB holds a few thousand of them.
 - Shared plans use last-write-wins if two people edit the same place at the same moment.
 - Packing lists aren't shared yet; personal Budget and shared Expenses are separate.
 - Expenses convert at today's rates (not the rate on the day paid).

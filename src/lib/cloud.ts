@@ -8,6 +8,9 @@
  *   groups/{id}/stops/{stop}  → the shared plan (one doc per place)
  *   groups/{id}/messages/{m}  → chat (text, activity notes, plan cards)
  *   groups/{id}/expenses/{e}  → shared expenses (who paid, split between whom)
+ *   groups/{id}/photos/{p}    → shared photo details; groups/{id}/photoData/{p} → the picture
+ *   groups/{id}/status/{uid}  → when each member last read the chat / is typing
+ *   users/{uid}               → push notification addresses (tokens) of your devices
  */
 import { useEffect, useReducer, useState } from 'react';
 import { initializeApp } from 'firebase/app';
@@ -49,8 +52,9 @@ import {
   type DocumentData,
   type Timestamp,
 } from 'firebase/firestore';
-import type { ExpenseCategory, HotelStay, Stop, TravelMode, Trip } from '../types';
+import type { ExpenseCategory, HotelStay, Photo, Stop, TravelMode, Trip } from '../types';
 import { firebaseConfig, useEmulators } from './cloudConfig';
+import { blobToDataURL, compressImage, dataURLToBlob } from './image';
 
 const app = initializeApp(firebaseConfig!);
 export const auth = getAuth(app);
@@ -411,3 +415,122 @@ export async function saveGroupExpense(groupId: string, user: User, e: Omit<Grou
 }
 
 export const deleteGroupExpense = (groupId: string, id: string) => deleteDoc(doc(db, 'groups', groupId, 'expenses', id));
+
+// ───────────────────────── Shared photos ─────────────────────────
+// A photo's details (small) and its picture (a ~200–600 KB JPEG as a data URL) are separate
+// documents, so watching the list stays cheap and each picture downloads only once.
+
+export interface SharedPhoto {
+  id: string;
+  takenAt: number;
+  createdAt: number;
+  lat?: number;
+  lng?: number;
+  place?: string;
+  caption?: string;
+  addedBy: string;
+  name: string;
+}
+
+/** Firestore documents max out at 1 MB, so pictures are shrunk until they fit comfortably. */
+async function sharedJpeg(blob: Blob): Promise<string | null> {
+  for (const [dim, q] of [[1440, 0.75], [1200, 0.65], [960, 0.55]] as const) {
+    const out = await compressImage(blob, dim, q);
+    if (out.size <= 600_000) return blobToDataURL(out);
+  }
+  return null;
+}
+
+export function subscribePhotos(groupId: string, cb: (photos: SharedPhoto[], fromCache: boolean) => void) {
+  return onSnapshot(collection(db, 'groups', groupId, 'photos'), (s) =>
+    cb(
+      s.docs.map((d) => ({ ...(d.data() as SharedPhoto), id: d.id })),
+      s.metadata.fromCache,
+    ),
+  );
+}
+
+/** Adds one of your photos to the group. Returns false if it couldn't be made small enough. */
+export async function uploadPhoto(groupId: string, user: User, p: Photo): Promise<boolean> {
+  if (!p.blob) return false;
+  const data = await sharedJpeg(p.blob);
+  if (!data) return false;
+  const meta: Omit<SharedPhoto, 'id'> = {
+    takenAt: p.takenAt,
+    createdAt: p.createdAt,
+    lat: p.lat,
+    lng: p.lng,
+    place: p.place,
+    caption: p.caption,
+    addedBy: user.uid,
+    name: displayName(user),
+  };
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'groups', groupId, 'photoData', p.id), { data, addedBy: user.uid });
+  batch.set(doc(db, 'groups', groupId, 'photos', p.id), meta);
+  await batch.commit();
+  return true;
+}
+
+/** The picture itself, as a Blob (downloaded once, then kept in the local photo store). */
+export async function downloadPhoto(groupId: string, id: string): Promise<Blob | null> {
+  const s = await getDoc(doc(db, 'groups', groupId, 'photoData', id));
+  const data = s.exists() ? (s.data().data as string | undefined) : undefined;
+  return data ? dataURLToBlob(data) : null;
+}
+
+export async function deleteSharedPhoto(groupId: string, id: string) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'groups', groupId, 'photos', id));
+  batch.delete(doc(db, 'groups', groupId, 'photoData', id));
+  await batch.commit();
+}
+
+// ───────────────────────── Typing & read receipts ─────────────────────────
+// groups/{id}/status/{uid} → { typingAt, readAt } (both server times, so everyone compares alike)
+
+export interface MemberStatus {
+  uid: string;
+  typingAt: Date | null;
+  readAt: Date | null;
+}
+
+export function subscribeStatus(groupId: string, cb: (s: MemberStatus[]) => void) {
+  return onSnapshot(collection(db, 'groups', groupId, 'status'), (s) =>
+    cb(
+      s.docs.map((d) => {
+        const data = d.data({ serverTimestamps: 'estimate' });
+        return { uid: d.id, typingAt: (data.typingAt as Timestamp | null)?.toDate() ?? null, readAt: (data.readAt as Timestamp | null)?.toDate() ?? null };
+      }),
+    ),
+  );
+}
+
+export const setTyping = (groupId: string, user: User, typing: boolean) =>
+  setDoc(doc(db, 'groups', groupId, 'status', user.uid), { typingAt: typing ? serverTimestamp() : null }, { merge: true }).catch(() => undefined);
+
+export const markChatRead = (groupId: string, user: User) =>
+  setDoc(doc(db, 'groups', groupId, 'status', user.uid), { readAt: serverTimestamp() }, { merge: true }).catch(() => undefined);
+
+// ───────────────────────── Notifications ─────────────────────────
+
+/** Remembers this phone's push address on your account, so friends' messages can reach it. */
+export const savePushToken = (user: User, token: string) => setDoc(doc(db, 'users', user.uid), { tokens: arrayUnion(token) }, { merge: true });
+export const removePushToken = (user: User, token: string) => setDoc(doc(db, 'users', user.uid), { tokens: arrayRemove(token) }, { merge: true });
+
+/**
+ * Asks the server (api/notify on Vercel) to alert the other members of a group.
+ * Best effort: a missing server or key never blocks the chat.
+ */
+export async function pushToGroup(groupId: string, user: User, body: string) {
+  try {
+    const token = await user.getIdToken();
+    await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ groupId, body }),
+    });
+  } catch {
+    /* offline or not set up — the in-app badge still shows */
+  }
+}

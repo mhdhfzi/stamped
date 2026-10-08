@@ -1,25 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { ArrowRight, BedDouble, Check, ChevronLeft, Copy, Crown, HandCoins, Loader2, LogOut, MapPinned, MessageCircle, Send, Share2, Trash2, Users, Wallet } from 'lucide-react';
+import { ArrowRight, BedDouble, Check, CheckCheck, ChevronLeft, Copy, Crown, HandCoins, Loader2, LogOut, MapPinned, MessageCircle, Send, Share2, Trash2, Users, Wallet } from 'lucide-react';
 import type { ExpenseCategory, Stop, Trip } from '../../types';
 import { currencyOf } from '../../data/currencies';
 import { useStore } from '../../store';
 import {
   deleteGroupExpense,
   leaveGroup,
+  markChatRead,
+  pushToGroup,
   saveGroupExpense,
   sendPlan,
   sendText,
+  setTyping,
   subscribeExpenses,
   subscribeGroup,
   subscribeMessages,
+  subscribeStatus,
   cloudErrorMessage,
   type ChatMessage,
+  type MemberStatus,
   type Group,
   type GroupExpense,
   type PlanCard,
 } from '../../lib/cloud';
 import { markRead } from '../../lib/groupBadge';
+import { PushBanner } from './PushControls';
 import { convert, fmtMoney, parseAmount } from '../../lib/money';
 import { balances, settleUp } from '../../lib/split';
 import { dayEnds, stayBlocks } from '../../lib/stays';
@@ -114,6 +120,7 @@ export function GroupScreen({ trip, user, onClose, initialTab = 'chat' }: { trip
           This trip’s group isn’t available — you may have left it, or you’re offline. Your own copy of the plan is still here.
         </p>
       )}
+      {group && tab === 'chat' && <PushBanner user={user} />}
       {group && tab === 'chat' && <ChatTab trip={trip} group={group} user={user} nameOf={nameOf} />}
       {group && tab === 'expenses' && <ExpensesTab trip={trip} group={group} user={user} nameOf={nameOf} />}
       {group && tab === 'members' && <MembersTab trip={trip} group={group} user={user} onLeft={onClose} />}
@@ -129,6 +136,9 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
   const [text, setText] = useState('');
   const [planOpen, setPlanOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [status, setStatus] = useState<MemberStatus[]>([]);
+  const [infoFor, setInfoFor] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now);
   const bottom = useRef<HTMLDivElement>(null);
   const { notify } = useStore();
 
@@ -139,10 +149,67 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
       setMessages(m);
     }, 300, (e) => setLoadError(cloudErrorMessage(e)));
   }, [group.id]);
+  useEffect(() => subscribeStatus(group.id, setStatus), [group.id]);
+
+  // Reading: whenever new messages arrive while the chat is open, tell the group you've seen them.
+  useEffect(() => {
+    markRead(group.id);
+    if (messages && document.visibilityState === 'visible') markChatRead(group.id, user);
+  }, [messages?.length, group.id, user]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onShow = () => document.visibilityState === 'visible' && markChatRead(group.id, user);
+    document.addEventListener('visibilitychange', onShow);
+    return () => document.removeEventListener('visibilitychange', onShow);
+  }, [group.id, user]);
+
+  // Typing: refresh "typing" every few seconds while keys are pressed; clear it after a pause, on send and on leaving.
+  const typingSentAt = useRef(0);
+  const idleTimer = useRef<number>();
+  function stopTyping() {
+    window.clearTimeout(idleTimer.current);
+    if (typingSentAt.current) {
+      typingSentAt.current = 0;
+      setTyping(group.id, user, false);
+    }
+  }
+  function onType(v: string) {
+    setText(v);
+    if (!v.trim()) return stopTyping();
+    if (Date.now() - typingSentAt.current > 4000) {
+      typingSentAt.current = Date.now();
+      setTyping(group.id, user, true);
+    }
+    window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(stopTyping, 6000);
+  }
+  useEffect(() => stopTyping, [group.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const others = group.members.filter((u) => u !== user.uid);
+  const statusOf = new Map(status.map((s) => [s.uid, s]));
+  const typers = others.filter((u) => {
+    const at = statusOf.get(u)?.typingAt;
+    return at && now - at.getTime() < 15_000;
+  });
+  // Re-check every couple of seconds so a stale "typing…" disappears even if its clear never arrived.
+  useEffect(() => {
+    if (!status.some((s) => s.typingAt)) return;
+    const t = window.setInterval(() => setNow(Date.now()), 2000);
+    return () => window.clearInterval(t);
+  }, [status]);
+  useEffect(() => {
+    if (typers.length) bottom.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [typers.length]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
-    markRead(group.id);
-  }, [messages?.length, group.id]);
+  }, [messages?.length]);
+
+  const seenBy = (m: ChatMessage) =>
+    m.createdAt ? others.filter((u) => {
+      const r = statusOf.get(u)?.readAt;
+      return r && r.getTime() >= m.createdAt!.getTime();
+    }) : [];
+  const firstNames = (uids: string[]) => uids.map((u) => nameOf(u).split(/\s+/)[0]).join(', ');
+  const lastMine = messages ? [...messages].reverse().find((m) => m.uid === user.uid && m.type !== 'activity') : undefined;
 
   const days = trip.startDate && trip.endDate ? dayCount(trip.startDate, trip.endDate) : 0;
 
@@ -168,18 +235,49 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
               </p>
             );
           }
+          const seen = mine ? seenBy(m) : [];
+          const allSeen = others.length > 0 && seen.length === others.length;
+          const showSeen = mine && seen.length > 0 && (m.id === lastMine?.id || infoFor === m.id);
           return (
             <div key={m.id} className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
               {showName && <span className="text-[10px] text-white/40 ml-2 mb-0.5">{group.memberInfo[m.uid]?.name ?? m.name}</span>}
-              {m.type === 'plan' && m.plan ? (
-                <PlanCardView plan={m.plan} start={trip.startDate} mine={mine} />
-              ) : (
-                <p className={cn('max-w-[78%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words', mine ? 'bg-white text-black rounded-br-md' : 'bg-white/[0.08] text-white rounded-bl-md')}>{m.text}</p>
+              <div
+                className={cn('contents', mine && 'cursor-pointer')}
+                onClick={mine ? () => setInfoFor(infoFor === m.id ? null : m.id) : undefined}
+              >
+                {m.type === 'plan' && m.plan ? (
+                  <PlanCardView plan={m.plan} start={trip.startDate} mine={mine} />
+                ) : (
+                  <p className={cn('max-w-[78%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words', mine ? 'bg-white text-black rounded-br-md' : 'bg-white/[0.08] text-white rounded-bl-md')}>{m.text}</p>
+                )}
+              </div>
+              <span className="text-[9px] text-white/30 mx-2 mt-0.5 flex items-center gap-1">
+                {m.createdAt ? time : 'Sending…'}
+                {mine && m.createdAt && (
+                  allSeen ? <CheckCheck size={12} className="text-sky-400" aria-label="Read by everyone" /> : seen.length ? <CheckCheck size={12} className="text-white/50" aria-label="Read by some" /> : <Check size={11} className="text-white/40" aria-label="Sent" />
+                )}
+              </span>
+              {showSeen && (
+                <span className="text-[10px] text-white/45 mx-2 mt-0.5 animate-fade-in">
+                  {allSeen && others.length > 1 ? 'Seen by everyone' : `Seen by ${firstNames(seen)}`}
+                  {infoFor === m.id && !allSeen && ` · not yet ${firstNames(others.filter((u) => !seen.includes(u)))}`}
+                </span>
               )}
-              <span className="text-[9px] text-white/30 mx-2 mt-0.5">{m.createdAt ? time : 'Sending…'}</span>
             </div>
           );
         })}
+        {typers.length > 0 && (
+          <div className="flex items-end gap-2 pt-1 animate-fade-in" aria-live="polite">
+            <span className="rounded-2xl rounded-bl-md bg-white/[0.08] px-3.5 py-2.5 flex items-center gap-1">
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full bg-white/60 typing-dot" style={{ animationDelay: `${i * 160}ms` }} />
+              ))}
+            </span>
+            <span className="text-[10px] text-white/45 pb-1">
+              {typers.length === 1 ? `${firstNames(typers)} is typing…` : typers.length === 2 ? `${firstNames(typers).replace(', ', ' and ')} are typing…` : 'Several people are typing…'}
+            </span>
+          </div>
+        )}
         <div ref={bottom} />
       </div>
 
@@ -190,11 +288,15 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
           const t = text.trim();
           if (!t) return;
           setText('');
-          sendText(group.id, user, t).catch((err) => {
-            console.error('Message not sent', err);
-            setText(t);
-            notify(`Message not sent — ${cloudErrorMessage(err)}`);
-          });
+          stopTyping();
+          sendText(group.id, user, t).then(
+            () => pushToGroup(group.id, user, t),
+            (err) => {
+              console.error('Message not sent', err);
+              setText(t);
+              notify(`Message not sent — ${cloudErrorMessage(err)}`);
+            },
+          );
         }}
       >
         <button
@@ -206,13 +308,13 @@ function ChatTab({ trip, group, user, nameOf }: { trip: Trip; group: Group; user
         >
           <MapPinned size={18} />
         </button>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Message" maxLength={1000} className={cn(inputClass, 'flex-1 min-w-0 rounded-full py-2.5')} />
+        <input value={text} onChange={(e) => onType(e.target.value)} onBlur={stopTyping} placeholder="Message" maxLength={1000} className={cn(inputClass, 'flex-1 min-w-0 rounded-full py-2.5')} />
         <button type="submit" aria-label="Send" disabled={!text.trim()} className="w-10 h-10 shrink-0 rounded-full bg-white text-black flex items-center justify-center active:scale-95 disabled:opacity-30">
           <Send size={16} />
         </button>
       </form>
 
-      <PlanSheet open={planOpen} onClose={() => setPlanOpen(false)} trip={trip} stops={stopsOf(trip.id)} onSend={(plan) => sendPlan(group.id, user, plan)} />
+      <PlanSheet open={planOpen} onClose={() => setPlanOpen(false)} trip={trip} stops={stopsOf(trip.id)} onSend={(plan) => sendPlan(group.id, user, plan).then(() => pushToGroup(group.id, user, `📍 Plan for Day ${plan.day + 1}: ${plan.stops.map((s) => s.name).join(', ') || 'free day'}`))} />
     </>
   );
 }
@@ -619,7 +721,7 @@ function MembersTab({ trip, group, user, onLeft }: { trip: Trip; group: Group; u
         ))}
       </ul>
       <p className="mt-3 text-[11px] text-white/40 leading-relaxed">
-        Everyone sees and edits the same plan — places, days, hotels and dates — plus this chat and the shared expenses. Photos, your personal budget and packing list stay private.
+        Everyone sees and edits the same plan — places, days, hotels and dates — plus the trip’s photos, this chat and the shared expenses. Your personal budget and packing list stay private.
       </p>
 
       <button type="button" onClick={() => setConfirm(true)} className="mt-6 w-full flex items-center justify-center gap-2 py-3 text-sm font-medium text-red-400">

@@ -69,6 +69,10 @@ input[type='time']::-webkit-calendar-picker-indicator { filter: invert(1); opaci
   .login-rise, .login-twinkle, .login-fly, .login-card { animation: none; }
 }
 
+/* Chat: the three bouncing dots of "typing…" */
+@keyframes typing-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-3px); opacity: 1; } }
+.typing-dot { animation: typing-dot 1.1s ease-in-out infinite; }
+
 /* Display serif for big headlines (beats the global Inter rule) */
 .font-display, .font-display * { font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif; letter-spacing: -0.01em; }
 @keyframes login-orbit { to { transform: rotate(360deg); } }

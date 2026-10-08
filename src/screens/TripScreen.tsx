@@ -19,15 +19,17 @@ import { EmptyState, GlassCircle } from '../components/ui';
 
 interface Props {
   tripId: string;
+  /** Opened from a chat notification: show the group chat straight away. */
+  openChat?: boolean;
   onBack: () => void;
   onOpenViewer: (ids: string[], index: number) => void;
 }
 
-export function TripScreen({ tripId, onBack, onOpenViewer }: Props) {
+export function TripScreen({ tripId, onBack, onOpenViewer, openChat }: Props) {
   const { trips, photosOf, coverOf, addPhotos, notify } = useStore();
   const trip = trips.find((t) => t.id === tripId);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(!!openChat);
   const unread = useUnread(trip?.groupId);
   // Trips you're still planning open on the plan.
   const [view, setView] = useState<'moments' | 'plan' | 'budget' | 'pack'>(() => (trip?.planned && !photosOf(tripId).length ? 'plan' : 'moments'));
