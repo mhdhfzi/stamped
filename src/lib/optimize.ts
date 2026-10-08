@@ -15,7 +15,8 @@ export async function travelMatrix(points: LatLng[], mode: TravelMode, signal?: 
   if (points.length <= MAX_TABLE) {
     try {
       const coords = points.map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
-      const profile = mode === 'car' ? 'routed-car' : 'routed-foot';
+      // Transit has no free travel-time table; road times are a fair stand-in for ordering places.
+      const profile = mode === 'foot' ? 'routed-foot' : 'routed-car';
       const res = await fetch(`https://routing.openstreetmap.de/${profile}/table/v1/driving/${coords}?annotations=duration`, { signal });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const json: any = await res.json();
@@ -33,8 +34,8 @@ export async function travelMatrix(points: LatLng[], mode: TravelMode, signal?: 
 }
 
 function straightMatrix(points: LatLng[], mode: TravelMode): Matrix {
-  const speed = mode === 'car' ? 30 / 3.6 : 4.5 / 3.6;
-  const detour = mode === 'car' ? 1.4 : 1.3;
+  const speed = mode === 'car' ? 30 / 3.6 : mode === 'transit' ? 22 / 3.6 : 4.5 / 3.6;
+  const detour = mode === 'foot' ? 1.3 : 1.4;
   return points.map((a) => points.map((b) => (haversine(a, b) * detour) / speed));
 }
 

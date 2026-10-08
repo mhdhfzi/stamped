@@ -77,7 +77,8 @@ export interface Place {
   lng: number;
 }
 
-export type TravelMode = 'foot' | 'car';
+/** How you get around: walking, driving, or public transport (subway, train, bus). */
+export type TravelMode = 'foot' | 'car' | 'transit';
 
 /** One planned place on a day of a trip. */
 export interface Stop {

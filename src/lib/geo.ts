@@ -239,7 +239,7 @@ export const GOOGLE_MAPS_MAX_POINTS = 11;
 /** A Google Maps directions link (opens the app on phones). Uses coordinates so the pins are exact. */
 export function googleMapsUrl(points: LatLng[], mode: TravelMode): string {
   const p = points.slice(0, GOOGLE_MAPS_MAX_POINTS).map((x) => `${x.lat.toFixed(6)},${x.lng.toFixed(6)}`);
-  const params = new URLSearchParams({ api: '1', travelmode: mode === 'car' ? 'driving' : 'walking' });
+  const params = new URLSearchParams({ api: '1', travelmode: mode === 'car' ? 'driving' : mode === 'transit' ? 'transit' : 'walking' });
   if (p.length === 1) {
     params.set('destination', p[0]);
   } else {

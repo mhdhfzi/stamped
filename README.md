@@ -69,6 +69,8 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 - **Trip dates** → Day 1, Day 2… (shortening a trip moves later places onto the last day)
 - **Add places** by searching OpenStreetMap (limited to the trip's country, ranked near what you've planned) — or from **Popular near Kyoto**: a carousel of the most famous sights (photos, categories) with one-tap **+ Add**; *See all* lists up to 60 with filters (Landmarks, Areas to explore, Temples & shrines, Museums & arts, Nature & parks, Family fun, Shopping) and area chips for multi-city trips
 - **Map per day** with numbered pins and the real **walking / driving route**, total distance & time, and time between each stop
+- **Transit** mode (subway, train, bus, tram, ferry): each hop shows the lines to take in their own colours (🚶 4 › 🚇 G › 🚶 3), tap for stations, number of stops, direction and how often it runs — from the **Google Routes API**, cached on the phone for a week
+- **Directions** button on every place: from **your location** (or the previous place if location is off) by Transit / Walk / Drive. Transit shows real **departure & arrival times**, alternatives and fares; **Start in Google Maps** (or Apple Maps on iPhone) for turn-by-turn guidance
 - Reorder (↑/↓), tick off as visited, add a time and note, move to another day
 - **Where you're staying** — one hotel for the trip, or **one per city** (Days 1–3 Shinjuku, Days 4–6 Kyoto). Each day starts where you slept and ends where you sleep, so **moving days** run hotel → hotel. Search an **area** to browse hotels, hostels & guesthouses on a map (filters, stars, distance, website), use the **area itself** as your base, or pick a hotel by name. **Airbnb / Booking.com / Google Hotels** links open pre-filled with the area and dates. Warns if a hotel is far from that day's places
 - **Optimise order** — shortest order for a day using real travel times (exact up to 12 places), keeps ticked-off places first, shows the time saved, **Undo**
@@ -133,6 +135,8 @@ A hero cover that drifts with the scroll (title fades & lifts; pull down to stre
 | open.er-api.com (fallback: currency-api on jsDelivr) | Exchange rates | Cached; refreshed every 12 h |
 | Firebase Auth + Firestore | Accounts, shared trips, photos, chat, shared expenses | Firestore offline cache |
 | Firebase Cloud Messaging + `api/notify.js` (Vercel function) | Chat notifications | Skipped; the in-app badge still shows |
+| Overpass API (OpenStreetMap) | Extra popular places where Wikipedia covers little | Skipped |
+| Google Routes API via `api/route.js` (key on the server) | Transit lines, stops & times | Plan shows the walking route; Directions still open Google Maps |
 
 **Algorithms worth knowing**
 - *Optimise order*: exact shortest path (Held–Karp) for up to 12 places, nearest-neighbour + 2-opt above that, with fixed start/end hotels
@@ -223,6 +227,16 @@ Phone alerts need two keys. Without them everything else works, and *Account →
 3. **Redeploy** (Vercel → Deployments → ⋯ → Redeploy), then on each phone: *Account → Chat notifications* (or the banner in a group chat) → allow.
 
 On iPhone (iOS 16.4+), notifications only work from the **Home Screen** app, not a Safari tab.
+
+### Transit directions (optional)
+
+Uses the Google Routes API through `api/route.js`, so the key stays on the server. Without it, Transit mode shows the walking route and Directions still open Google Maps.
+
+1. Google Cloud console → create a separate project (e.g. *stamped-maps*) and link a billing account. A separate project keeps your Firebase project on the free Spark plan.
+2. *APIs & Services → Library* → **Routes API** → Enable.
+3. *Credentials → Create credentials → API key* → *Restrict key* → API restrictions: **Routes API** only.
+4. *Routes API → Quotas*: lower the requests-per-minute limit, and add a **budget alert** under *Billing → Budgets & alerts*.
+5. Vercel → Environment Variables → `GOOGLE_MAPS_API_KEY` (Secret) → Redeploy.
 
 **Test without a project:** `npm run emulators` in one terminal, `npm run dev:emulators` in another — accounts and data stay on your computer.
 
@@ -335,7 +349,8 @@ users/{uid}                 → tokens[] (this person's devices for notification
 - Optimising doesn't respect fixed times; travel mode is per trip (no train/flight legs yet).
 - EXIF is read from JPEG only (iPhone Safari converts HEIC to JPEG on upload).
 - Hotel lists come from OpenStreetMap (not every property); Airbnb/booking prices aren't available as open data.
-- Popular places: the first load for a new city can take 5–20 s (then cached for 30 days).
+- Popular places: the first load for a new place can take 5–30 s (then cached for 30 days). Searches widen to 30/60 km and add OpenStreetMap results where famous sights are few; nearer places rank higher.
+- Transit: plan hops show lines and durations (not clock times, since the trip may be another day); live times are in **Directions**. *Optimise order* and *Split across days* use road travel times as a stand-in for transit.
 
 ---
 

@@ -3,7 +3,8 @@ import { ArrowRight, BedDouble, CalendarDays, Camera, Car, Check, ChevronDown, C
 import type { HotelStay, Photo, Place, Stop, TravelMode, Trip } from '../types';
 import { useStore } from '../store';
 import { GOOGLE_MAPS_MAX_POINTS, fmtDistance, fmtDuration, getRoute, googleMapsUrl, haversine, searchPlaces, type Route } from '../lib/geo';
-import type { Attraction } from '../lib/popular';
+import { capitalOf, type Attraction } from '../lib/popular';
+import { countryName } from '../data/countries';
 import { bestOrder, pathCost, splitByStays, travelMatrix } from '../lib/optimize';
 import { dayEnds, firstGap, samePlace, stayBlocks, suggestNights, upsertStay } from '../lib/stays';
 import { photoDay, stopForPhoto } from '../lib/tripStatus';
@@ -15,8 +16,11 @@ import { PlaceSearchSheet, StopSheet, TripDatesSheet, dayLabel } from './PlanShe
 import { StaySheet, placeTitle, type StayDraft } from './StaySheet';
 import { PopularCarousel, PopularList, type TripArea } from './PopularPlaces';
 import { ConfirmSheet, EmptyState, ErrorBoundary, MapFallback } from './ui';
+import { DirectionsSheet, TransitLegRow, type Endpoint } from './Transit';
+import { decodePolyline, transitErrorText, transitLeg, type TransitRoute } from '../lib/transit';
 
 type Layout = Pick<Stop, 'id' | 'day' | 'order'>[];
+type TLeg = TransitRoute | null | 'failed' | undefined;
 
 const snapshot = (stops: Stop[]): Layout => stops.map(({ id, day, order }) => ({ id, day, order }));
 
@@ -44,6 +48,10 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
   const [editing, setEditing] = useState<Stop | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
+  // Transit mode: each hop's lines (undefined = still loading, null = no transit there, 'failed' = couldn't ask).
+  const [tLegs, setTLegs] = useState<TLeg[]>([]);
+  const [tError, setTError] = useState<string | null>(null);
+  const [directionsTo, setDirectionsTo] = useState<{ to: Endpoint; from?: Endpoint } | null>(null);
   const [routing, setRouting] = useState(false);
   const [busy, setBusy] = useState<'optimise' | 'split' | null>(null);
   const [undo, setUndo] = useState<{ message: string; layout: Layout } | null>(null);
@@ -76,9 +84,16 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
   useEffect(() => {
     if (areas.length || titleArea || !days) return;
     const ac = new AbortController();
-    searchPlaces(trip.title, trip.countryCode, [], ac.signal)
-      .then((r) => r[0] && setTitleArea({ name: trip.title, lat: r[0].lat, lng: r[0].lng }))
-      .catch(() => undefined);
+    // A trip named after the whole country ("Malaysia"): start from its capital, not the middle of the map.
+    if (trip.title.trim().toLowerCase() === countryName(trip.countryCode).toLowerCase()) {
+      capitalOf(trip.countryCode)
+        .then((c) => !ac.signal.aborted && c && setTitleArea(c))
+        .catch(() => undefined);
+    } else {
+      searchPlaces(trip.title, trip.countryCode, [], ac.signal)
+        .then((r) => r[0] && setTitleArea({ name: trip.title, lat: r[0].lat, lng: r[0].lng }))
+        .catch(() => undefined);
+    }
     return () => ac.abort();
   }, [areas.length, titleArea, days, trip.title, trip.countryCode]);
   // The area for this day: nearest to tonight's hotel, else to the day's places.
@@ -127,10 +142,61 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
   useEffect(() => {
     if (routePoints.length < 2) {
       setRoute(null);
+      setTLegs([]);
       return;
     }
     const ac = new AbortController();
     setRouting(true);
+    if (mode === 'transit') {
+      // Transit: one Google route per hop (2 at a time), cached on the phone for a week.
+      const n = routePoints.length - 1;
+      const legs: TLeg[] = Array(n).fill(undefined);
+      setTLegs([...legs]);
+      setTError(null);
+      let failure: unknown = null;
+      let next = 0;
+      const worker = async () => {
+        while (next < n && !ac.signal.aborted) {
+          const i = next++;
+          try {
+            legs[i] = await transitLeg(routePoints[i], routePoints[i + 1], ac.signal);
+          } catch (e) {
+            if (ac.signal.aborted) return;
+            failure = e;
+            legs[i] = 'failed';
+          }
+          if (!ac.signal.aborted) setTLegs([...legs]);
+        }
+      };
+      (async () => {
+        await Promise.all([worker(), worker()]);
+        if (ac.signal.aborted) return;
+        if (failure) setTError(transitErrorText(failure));
+        if (legs.every((l) => l === 'failed')) {
+          // No transit at all (not set up / offline): show the walking route on the map instead.
+          setRoute(await getRoute(routePoints, 'foot', ac.signal).catch(() => null));
+        } else {
+          const line: [number, number][] = [];
+          legs.forEach((l, i) => {
+            const a = routePoints[i];
+            const b = routePoints[i + 1];
+            line.push(...(l && l !== 'failed' && l.polyline ? decodePolyline(l.polyline) : ([[a.lat, a.lng], [b.lat, b.lng]] as [number, number][])));
+          });
+          const ok = legs.map((l) => (l && l !== 'failed' ? l : null));
+          setRoute({
+            line,
+            distance: ok.reduce((s, l) => s + (l?.distance ?? 0), 0),
+            duration: ok.reduce((s, l) => s + (l?.duration ?? 0), 0),
+            legs: ok.map((l) => ({ distance: l?.distance ?? 0, duration: l?.duration ?? 0 })),
+            approximate: ok.some((l) => !l),
+          });
+        }
+        setRouting(false);
+      })();
+      return () => ac.abort();
+    }
+    setTLegs([]);
+    setTError(null);
     getRoute(routePoints, mode, ac.signal)
       .then((r) => setRoute(r))
       .catch(() => undefined)
@@ -177,7 +243,7 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
       }
       const prev = snapshot(dayStops);
       await arrangeStops(order.map((i, o) => ({ id: dayStops[i].id, day, order: o })));
-      setUndo({ message: `Saves about ${fmtDuration(before - after)} of ${mode === 'car' ? 'driving' : 'walking'}`, layout: prev });
+      setUndo({ message: `Saves about ${fmtDuration(before - after)} of ${mode === 'car' ? 'driving' : mode === 'transit' ? 'travel' : 'walking'}`, layout: prev });
     } catch {
       notify('Couldn’t optimise right now');
     } finally {
@@ -216,6 +282,11 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
   function openGoogleMaps() {
     const todo = dayStops.filter((s) => !s.done);
     const stops = todo.length ? todo : dayStops;
+    // Google Maps can't do transit with stops in between: go to the next place from where you are.
+    if (mode === 'transit') {
+      window.open(googleMapsUrl([stops[0]], 'transit'), '_blank', 'noopener');
+      return;
+    }
     const points = [...(ends.start ? [ends.start] : []), ...stops, ...(ends.end ? [ends.end] : [])];
     if (points.length > GOOGLE_MAPS_MAX_POINTS) notify(`Google Maps takes ${GOOGLE_MAPS_MAX_POINTS} stops at most — the rest are left off`);
     window.open(googleMapsUrl(points, mode), '_blank', 'noopener');
@@ -240,10 +311,23 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
   }
 
   const start = trip.startDate!;
-  const modeWord = mode === 'car' ? 'driving' : 'walking';
-  const ModeIcon = mode === 'car' ? Car : Footprints;
+  const modeWord = mode === 'car' ? 'driving' : mode === 'transit' ? 'by transit' : 'walking';
+  const ModeIcon = mode === 'car' ? Car : mode === 'transit' ? TrainFront : Footprints;
   // With hotels, route legs are: hotel→1, 1→2, …, last→hotel.
-  const legAfter = (i: number) => route?.legs[ends.start ? i + 1 : i];
+  const legIndex = (i: number) => (ends.start ? i + 1 : i);
+  /** Transit mode shows each hop's lines; otherwise time and distance. */
+  const hop = (idx: number, label?: string) =>
+    mode === 'transit' && tLegs.length ? (
+      <TransitLegRow leg={tLegs[idx] === 'failed' ? null : (tLegs[idx] as TransitRoute | null | undefined)} loading={tLegs[idx] === undefined} failed={tLegs[idx] === 'failed'} label={label} />
+    ) : (
+      legRow(route?.legs[idx], label)
+    );
+  /** Directions start from the previous place (or the hotel) if your location is off. */
+  const openDirections = (i: number) => {
+    const s = dayStops[i];
+    const prev = i > 0 ? dayStops[i - 1] : ends.start;
+    setDirectionsTo({ to: { name: s.name, lat: s.lat, lng: s.lng }, from: prev ? { name: 'name' in prev ? (prev.name as string) : 'Previous place', lat: prev.lat, lng: prev.lng } : undefined });
+  };
   const movableCount = all.filter((s) => !s.done).length;
   const gap = blocks.length ? firstGap(blocks, days) : null;
   const shortRange = (a: number, b: number) =>
@@ -276,7 +360,7 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
           {fmtDate(fromDateInput(trip.endDate!))} · {days}d
         </button>
         <div className="flex rounded-full bg-white/[0.06] p-0.5" role="radiogroup" aria-label="Travel mode">
-          {([['foot', Footprints, 'Walk'], ['car', Car, 'Drive']] as const).map(([m, Icon, label]) => (
+          {([['foot', Footprints, 'Walk'], ['transit', TrainFront, 'Transit'], ['car', Car, 'Drive']] as const).map(([m, Icon, label]) => (
             <button
               key={m}
               type="button"
@@ -413,8 +497,9 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
               </>
             )}
             {routing && <Loader2 size={11} className="animate-spin" />}
-            {route?.approximate && !routing && <span className="text-white/30">(straight-line estimate)</span>}
+            {route?.approximate && !routing && mode !== 'transit' && <span className="text-white/30">(straight-line estimate)</span>}
           </p>
+          {mode === 'transit' && tError && !routing && <p className="mt-1 text-[11px] text-amber-300/90">{tError}{tLegs.every((l) => l === 'failed') ? ' Showing the walking route.' : ''}</p>}
 
           <div className="mt-3 flex gap-2">
             <button
@@ -456,7 +541,7 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
 
       {/* Stops */}
       <ol className="mt-3">
-        {ends.start && dayStops.length > 0 && legRow(route?.legs[0], ends.moving ? 'From last night’s hotel' : 'From hotel')}
+        {ends.start && dayStops.length > 0 && hop(0, ends.moving ? 'From last night’s hotel' : 'From hotel')}
         {dayStops.map((s, i) => (
           <li key={s.id} className="reveal" ref={(el) => (el ? rowRefs.current.set(s.id, el) : rowRefs.current.delete(s.id))}>
             <div className={cn('flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors', selectedId === s.id ? 'bg-white/10' : 'bg-white/[0.04]')}>
@@ -490,6 +575,14 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
                   <span className="absolute bottom-0 right-0 bg-black/70 text-white text-[9px] font-semibold leading-none px-1 py-0.5 rounded-tl">{photosByStop.get(s.id)!.length}</span>
                 </button>
               )}
+              <button
+                type="button"
+                aria-label={`Directions to ${s.name}`}
+                onClick={() => openDirections(i)}
+                className="w-8 h-8 shrink-0 rounded-full bg-sky-500/15 text-sky-300 flex items-center justify-center active:scale-90"
+              >
+                <Navigation size={14} />
+              </button>
               <div className="flex flex-col -my-1">
                 <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)} className="text-white/50 disabled:opacity-20 p-0.5">
                   <ChevronUp size={16} />
@@ -499,7 +592,7 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
                 </button>
               </div>
             </div>
-            {i < dayStops.length - 1 ? (legRow(legAfter(i)) ?? <div className="h-2" />) : ends.end && legRow(legAfter(i), ends.moving ? 'To tonight’s hotel' : 'Back to hotel')}
+            {i < dayStops.length - 1 ? (hop(legIndex(i)) ?? <div className="h-2" />) : ends.end && hop(legIndex(i), ends.moving ? 'To tonight’s hotel' : 'Back to hotel')}
           </li>
         ))}
       </ol>
@@ -584,6 +677,7 @@ export function TripPlan({ trip, onOpenViewer }: { trip: Trip; onOpenViewer: (id
         }}
       />
       <StopSheet trip={trip} stop={editing} onClose={() => setEditing(null)} />
+      <DirectionsSheet to={directionsTo?.to ?? null} fallback={directionsTo?.from} defaultMode={mode} onClose={() => setDirectionsTo(null)} />
       <ConfirmSheet
         open={splitOpen}
         onClose={() => setSplitOpen(false)}

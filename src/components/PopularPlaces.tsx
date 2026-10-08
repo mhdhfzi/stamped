@@ -86,7 +86,7 @@ function Status({ area, items, error, retry }: { area: TripArea; items: Attracti
   if (!items) {
     return (
       <p className="py-4 flex items-center justify-center gap-2 text-xs text-white/50">
-        <Loader2 size={14} className="animate-spin" /> Finding popular places near {area.name}… (first time can take ~20 s)
+        <Loader2 size={14} className="animate-spin" /> Finding popular places near {area.name}… (first time can take up to ~30 s)
       </p>
     );
   }
@@ -123,7 +123,9 @@ export function PopularCarousel({ area, stops, day, onAdd, onSeeAll }: { area: T
               </div>
             </div>
           ))}
-          {!shown.length && <p className="text-xs text-white/40 py-3">You’ve added all the top places here — see all for more.</p>}
+          {!shown.length && (
+            <p className="text-xs text-white/40 py-3">{items.length ? 'You’ve added all the top places here — see all for more.' : `No well-known sights found near ${area.name} — search for a place instead.`}</p>
+          )}
         </div>
       )}
     </section>
@@ -197,7 +199,7 @@ export function PopularList({ areas, initialArea, stops, onAdd }: { areas: TripA
           </li>
         ))}
       </ul>
-      {items && <p className="mt-3 text-[10px] text-white/30 text-center">Ranked by fame across Wikipedia · data from Wikidata</p>}
+      {items && <p className="mt-3 text-[10px] text-white/30 text-center">Ranked by fame across Wikipedia · data from Wikidata & OpenStreetMap</p>}
     </div>
   );
 }
