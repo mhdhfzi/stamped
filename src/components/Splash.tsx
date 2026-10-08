@@ -55,6 +55,12 @@ function FlagRing({ flags, radius, size, reverse, seconds, delay }: { flags: str
   );
 }
 
+/** Name size on the welcome line: big for short names, smaller as they get longer (then "…"). */
+function greetingSize(name: string) {
+  const n = name.trim().length;
+  return n <= 12 ? 28 : n <= 18 ? 24 : n <= 26 ? 20 : 18;
+}
+
 /**
  * Launch screen shown every time the app opens: rings of country flags spinning around the emblem.
  * Stays until the app is ready, then fades into the home page (or the sign-up screen for new users).
@@ -95,15 +101,19 @@ export function Splash({ leaving, resolved, name }: { leaving: boolean; resolved
       <h1 className="font-display mt-6 text-white text-[52px] leading-none login-rise" style={{ animationDelay: '250ms' }}>
         Stamped
       </h1>
-      <p className={`mt-3 h-5 text-sm text-white/55 transition-opacity duration-500 ${resolved ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Greeting: fixed space under the title so nothing jumps; long names shrink, then end in "…" */}
+      <div className={`mt-4 h-16 w-full max-w-[320px] px-6 flex flex-col items-center justify-start text-center transition-all duration-500 ease-out ${resolved ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>
         {name ? (
           <>
-            Welcome back, <span className="text-amber-100">{name}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-white/45">Welcome back</span>
+            <span className="mt-1.5 max-w-full truncate font-display italic leading-tight text-amber-100" style={{ fontSize: greetingSize(name) }} title={name}>
+              {name}
+            </span>
           </>
         ) : (
           <span className="font-display italic text-base text-amber-100/80">Every place you go, stamped.</span>
         )}
-      </p>
+      </div>
 
       {/* Indeterminate loading bar */}
       <div className="absolute bottom-20 w-28 h-[3px] rounded-full bg-white/10 overflow-hidden">
